@@ -12,12 +12,12 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 try:
     sys.stdout.reconfigure(encoding="utf-8")
-except Exception:  # noqa: BLE001
+except Exception:
     pass
 
-import db
 import backup as backup_mod
 import bot
+import db
 from config import settings
 
 FAILURES: list[str] = []

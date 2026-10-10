@@ -22,6 +22,7 @@ from pathlib import Path
 
 import db
 from config import settings
+from lang import t
 
 log = logging.getLogger(__name__)
 
@@ -51,7 +52,7 @@ async def _remember(bot, file_id: str) -> None:
     """Park the snapshot's file_id in the bot profile so a restart can find it."""
     try:
         await bot.set_my_description(description=f"🛍 {settings.shop_name}\nshopdb:{file_id}")
-    except Exception:  # noqa: BLE001 - losing the pointer is not fatal
+    except Exception:
         log.warning("Could not store snapshot pointer in the bot profile", exc_info=True)
 
 
@@ -64,7 +65,7 @@ async def _recall(bot) -> str | None:
     try:
         chat = await bot.get_chat((await bot.get_me()).id)
         match = MARKER.search(getattr(chat, "description", None) or "")
-    except Exception:  # noqa: BLE001 - a missing pointer is normal on a fresh install
+    except Exception:
         log.warning("Could not read the snapshot pointer from the bot profile", exc_info=True)
         return None
     return match.group(1) if match else None
@@ -86,15 +87,15 @@ async def upload(bot, admin_id: int) -> str | None:
             message = await bot.send_document(
                 chat_id=admin_id,
                 document=(snapshot.name, fh),
-                caption=(
-                    "💾 <b>အလိုအလ် သိမ်းဆည်းမှု</b>\n"
-                    f"🕐 {db.stamp()}\n"
-                    f"👥 အသုံးပြုသူ: {db.user_count()}\n"
-                    f"🧾 အော်ဒါ: {db.order_count()}"
+                caption=t(
+                    "backup_caption",
+                    when=db.stamp(),
+                    users=db.user_count(),
+                    orders=db.order_count(),
                 ),
                 parse_mode="HTML",
             )
-    except Exception:  # noqa: BLE001 - backups must never break the bot
+    except Exception:
         log.warning("Snapshot upload failed", exc_info=True)
         return None
     finally:
@@ -117,7 +118,7 @@ async def restore(bot) -> bool:
     try:
         handle = await bot.get_file(file_id)
         await asyncio.to_thread(handle.download_to_drive, custom_path=str(target))
-    except Exception:  # noqa: BLE001
+    except Exception:
         log.warning("Snapshot restore failed", exc_info=True)
         return False
 

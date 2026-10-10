@@ -15,13 +15,13 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 try:
     sys.stdout.reconfigure(encoding="utf-8")
-except Exception:  # noqa: BLE001
+except Exception:
     pass
 
 import db
 import handlers_admin as admin
+import lang
 import views
-from views import money
 
 
 def render(label: str, target: str, user_id: int) -> None:
@@ -53,6 +53,16 @@ def main() -> int:
     cats, products = admin._seed_demo()
     print(f"seeded {len(cats)} categories and {len(products)} products")
 
+    for code in lang.available():
+        lang.set_lang(code)
+        print(f"\n\n{'=' * 62}\n  LANGUAGE: {code}  ({lang.native_name(code)})\n{'=' * 62}")
+        _render_all(user_id, cats)
+    lang.reset()
+    print()
+    return 0
+
+
+def _render_all(user_id: int, cats) -> None:
     render("Main menu", "menu:main", user_id)
     render("Balance", "menu:balance", user_id)
     render("Category list", "menu:catalog", user_id)
@@ -77,9 +87,7 @@ def main() -> int:
 
     render("Admin panel", "menu:admin", user_id)
     render("Help", "menu:help", user_id)
-    print(f"\n{'─' * 60}")
-    print(f"Demo balance after seeding: {money(db.get_balance(user_id))}")
-    return 0
+    render("Language picker", "menu:lang", user_id)
 
 
 if __name__ == "__main__":

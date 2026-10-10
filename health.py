@@ -24,7 +24,7 @@ log = logging.getLogger(__name__)
 class _HealthHandler(BaseHTTPRequestHandler):
     protocol_version = "HTTP/1.1"
 
-    def do_GET(self) -> None:  # noqa: N802 - BaseHTTPRequestHandler API
+    def do_GET(self) -> None:  # BaseHTTPRequestHandler API — do_GET, not get
         path = self.path.split("?", 1)[0].rstrip("/") or "/"
         if path in {"/", "/health", "/healthz"}:
             body = b'{"status":"ok"}'
@@ -65,7 +65,7 @@ def ping(url: str) -> bool:
     try:
         response = httpx.get(target, timeout=15.0, follow_redirects=True)
         return response.status_code == 200
-    except Exception as exc:  # noqa: BLE001 - a failed keep-alive must never kill the bot
+    except Exception as exc:  # a failed keep-alive must never kill the bot
         log.warning("Keep-alive ping failed: %s (%s)", target, type(exc).__name__)
         return False
 

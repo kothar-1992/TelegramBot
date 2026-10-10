@@ -1,14 +1,27 @@
-"""Inline-keyboard builders.  Every screen keeps a ⬅️ Back and 🏠 Main Menu row."""
+"""Inline-keyboard builders.
+
+Every screen keeps a ⬅️ Back and 🏠 Main Menu row.  All labels come from
+`lang.t()` so the keyboards follow the customer's chosen language.
+"""
 
 from __future__ import annotations
 
 import sqlite3
-from telegram import InlineKeyboardButton, InlineKeyboardMarkup, KeyboardButton, ReplyKeyboardMarkup
+import urllib.parse
+
+from telegram import (
+    InlineKeyboardButton,
+    InlineKeyboardMarkup,
+    KeyboardButton,
+    ReplyKeyboardMarkup,
+)
 
 from config import settings
+from lang import LANGUAGES, t
 
 MAIN = "menu:main"
 BACK = "nav:back"
+MENU_LABEL = "🏠 Menu"
 
 
 def _btn(text: str, data: str) -> InlineKeyboardButton:
@@ -16,21 +29,25 @@ def _btn(text: str, data: str) -> InlineKeyboardButton:
 
 
 def grid(buttons: list[InlineKeyboardButton], per_row: int = 2) -> list[list[InlineKeyboardButton]]:
-    rows = [buttons[i:i + per_row] for i in range(0, len(buttons), per_row)]
-    return rows
+    return [buttons[i:i + per_row] for i in range(0, len(buttons), per_row)]
 
 
 def menu_reply_keyboard() -> ReplyKeyboardMarkup:
     """The persistent 🏠 Menu button under the message input (as in the mockup)."""
     return ReplyKeyboardMarkup(
-        [[KeyboardButton("🏠 Menu")]],
+        [[KeyboardButton(MENU_LABEL)]],
         resize_keyboard=True,
         input_field_placeholder="Write a message...",
     )
 
 
-def home_row() -> list[InlineKeyboardButton]:
-    return [_btn("🏠 Main Menu", MAIN)]
+def language_picker() -> InlineKeyboardMarkup:
+    return InlineKeyboardMarkup(
+        [
+            [_btn(f"{meta['flag']} {meta['native']}", f"lang:set:{code}")]
+            for code, meta in LANGUAGES.items()
+        ]
+    )
 
 
 def nav_row(extra: list[InlineKeyboardButton] | None = None, back: bool = True) -> list[list[InlineKeyboardButton]]:
@@ -40,8 +57,8 @@ def nav_row(extra: list[InlineKeyboardButton] | None = None, back: bool = True) 
         rows.append(list(extra))
     row: list[InlineKeyboardButton] = []
     if back:
-        row.append(_btn("⬅️ Back", BACK))
-    row.append(_btn("🏠 Main Menu", MAIN))
+        row.append(_btn(t("back"), BACK))
+    row.append(_btn(t("main_menu"), MAIN))
     rows.append(row)
     return rows
 
@@ -51,32 +68,26 @@ def nav_row(extra: list[InlineKeyboardButton] | None = None, back: bool = True) 
 # --------------------------------------------------------------------------- #
 def main_menu(username: str = "", is_admin: bool = False) -> InlineKeyboardMarkup:
     rows = [
-        [
-            _btn("🛍 ထုတ်ကုန်များ", "menu:catalog"),
-            _btn("💰 သိန်းငွေ", "menu:balance"),
-        ],
-        [
-            _btn("🧾 အော်ဒါမှုမှတ်တမ်း", "menu:orders"),
-            _btn("💬 Live Chat", "menu:support"),
-        ],
-        [_btn("📖 အကြံပြုချက်", "menu:help")],
+        [_btn(t("menu_products"), "menu:catalog"), _btn(t("menu_balance"), "menu:balance")],
+        [_btn(t("menu_orders"), "menu:orders"), _btn(t("menu_support"), "menu:support")],
+        [_btn(t("menu_help"), "menu:help"), _btn(t("menu_language"), "menu:lang")],
     ]
     if is_admin:
-        rows.append([_btn("🛠 Admin Panel", "menu:admin")])
+        rows.append([_btn(t("menu_admin"), "menu:admin")])
     return InlineKeyboardMarkup(rows)
 
 
 def categories(cats: list[sqlite3.Row], page: int = 0, pages: int = 1) -> InlineKeyboardMarkup:
-    rows = [_btn(f"{c['emoji']} {c['name']}  ({c['item_count']})", f"cat:{c['id']}:0") for c in cats]
-    rows = grid(rows, per_row=2)
+    rows = grid([_btn(f"{c['emoji']} {c['name']}  ({c['item_count']})", f"cat:{c['id']}:0") for c in cats], per_row=2)
 
-    pager: list[InlineKeyboardButton] = []
-    pager.append(_btn("◀️", f"menu:catalog:{page - 1}" if page > 0 else f"menu:catalog:{max(page - 1, 0)}"))
-    pager.append(_btn(f"📄 {page + 1}/{max(pages, 1)}", f"menu:catalog:{page}"))
-    pager.append(
-        _btn("နောက်သို့ ▶️", f"menu:catalog:{page + 1}" if page + 1 < pages else f"menu:catalog:{page}")
+    clamped = max(0, min(page, pages - 1))
+    rows.append(
+        [
+            _btn(t("prev"), f"menu:catalog:{max(clamped - 1, 0)}"),
+            _btn(t("page", page=clamped + 1, pages=max(pages, 1)), f"menu:catalog:{clamped}"),
+            _btn(t("next"), f"menu:catalog:{min(clamped + 1, pages - 1)}"),
+        ]
     )
-    rows.append(pager)
     rows += nav_row()
     return InlineKeyboardMarkup(rows)
 
@@ -84,34 +95,32 @@ def categories(cats: list[sqlite3.Row], page: int = 0, pages: int = 1) -> Inline
 def product_card(product: sqlite3.Row) -> InlineKeyboardMarkup:
     """Keyboard attached to a single product photo card."""
     if int(product["price"]) <= 0:
-        return InlineKeyboardMarkup(
-            [[_btn("📞 စျေးနှင့်မေးမြန်းမည်", f"ask:{product['id']}")]]
-        )
-    return InlineKeyboardMarkup([[_btn("🛒 ဝယ်မည်", f"prod:{product['id']}")]])
+        return InlineKeyboardMarkup([[_btn(t("ask_price"), f"ask:{product['id']}")]])
+    return InlineKeyboardMarkup([[_btn(t("buy"), f"prod:{product['id']}")]])
 
 
 def product_list_controls(cat_id: int, page: int, pages: int) -> list[list[InlineKeyboardButton]]:
     row: list[InlineKeyboardButton] = []
     if page > 0:
-        row.append(_btn("◀️ ရှေ့သို့", f"plist:{cat_id}:{page - 1}"))
-    row.append(_btn(f"📄 {page + 1}/{max(pages, 1)}", f"plist:{cat_id}:{page}"))
+        row.append(_btn(t("prev"), f"plist:{cat_id}:{page - 1}"))
+    row.append(_btn(t("page", page=page + 1, pages=max(pages, 1)), f"plist:{cat_id}:{page}"))
     if page + 1 < pages:
-        row.append(_btn("နောက်သို့ ▶️", f"plist:{cat_id}:{page + 1}"))
+        row.append(_btn(t("next"), f"plist:{cat_id}:{page + 1}"))
     return grid(row, per_row=3)
 
 
 def product_detail(product: sqlite3.Row) -> InlineKeyboardMarkup:
     action = (
-        _btn("🛒 သို့မဟုတ် ဝယ်မည်", f"qty:{product['id']}:1")
+        _btn(t("buy_or"), f"qty:{product['id']}:1")
         if int(product["price"]) > 0
-        else _btn("📞 စျေးနှင့်မေးမြန်းမည်", f"ask:{product['id']}")
+        else _btn(t("ask_price"), f"ask:{product['id']}")
     )
     return InlineKeyboardMarkup(nav_row(extra=[action]))
 
 
 def _price(amount: int) -> str:
     """`0` means price-on-request — never advertise a free product."""
-    return f"{int(amount):,} {settings.currency}" if int(amount) > 0 else "စျေးနှင့်မသတ်မှတ်"
+    return f"{int(amount):,} {settings.currency}" if int(amount) > 0 else t("price_tbd")
 
 
 def qty_selector(product, qty: int, total: int, user_id: int) -> InlineKeyboardMarkup:
@@ -120,82 +129,73 @@ def qty_selector(product, qty: int, total: int, user_id: int) -> InlineKeyboardM
     rows = [
         [
             _btn("➖", f"qadj:{pid}:{qty}:-1"),
-            _btn(f"🔢 {qty}", f"qty:{pid}:{qty}"),
+            _btn(t("qty_step", qty=qty), f"qty:{pid}:{qty}"),
             _btn("➕", f"qadj:{pid}:{qty}:1"),
         ],
-        [_btn(f"🚚 ဝယ်မည် · {_price(total)}", f"confirm:{pid}:{qty}")],
+        [_btn(t("buy_total", total=_price(total)), f"confirm:{pid}:{qty}")],
     ]
 
     extras: list[InlineKeyboardButton] = []
     if product["tutorial_url"]:
         extras.append(_btn("📂 Tutorial", f"tut:{pid}"))
-    extras.append(_btn("💰 သိန်းငွေဖြည့်မည်", "menu:topup"))
+    extras.append(_btn(t("menu_topup"), "menu:topup"))
     rows.append(extras)
     rows.append([InlineKeyboardButton("🔗 Share", url=share_link(pid, product["name"]))])
-    rows.append([_btn("⬅️ Back", f"prod:{pid}"), _btn("🏠 Main Menu", MAIN)])
+    rows.append([_btn(t("back"), f"prod:{pid}"), _btn(t("main_menu"), MAIN)])
     return InlineKeyboardMarkup(rows)
 
 
 def share_link(product_id: int, name: str) -> str:
     """Opens Telegram's share sheet so customers can forward the product."""
-    import urllib.parse
-
-    text = urllib.parse.quote(f"🛍 {name}")
-    return f"https://t.me/share/url?url={urllib.parse.quote(f'https://t.me/share?text={text}')}&text={text}"
+    text = urllib.parse.quote(t("share_msg", name=name))
+    inner = urllib.parse.quote(f"https://t.me/share?text={text}")
+    return f"https://t.me/share/url?url={inner}&text={text}"
 
 
 def confirm_order(product, qty: int, total: int, short: int) -> InlineKeyboardMarkup:
     pid = product["id"]
     rows: list[list[InlineKeyboardButton]] = []
     if short > 0:
-        rows.append([_btn(f"💳 သိန်းငွေဖြည့်မည် · {_price(short)}", f"topup:{short}")])
-    rows.append([_btn("✅ အတည်ပြုဝယ်မည်", f"order:yes:{pid}:{qty}")])
-    rows.append([_btn("⬅️ Back", f"qty:{pid}:{qty}")])
+        rows.append([_btn(t("topup_short", amount=_price(short)), f"topup:{short}")])
+    rows.append([_btn(t("confirm_yes"), f"order:yes:{pid}:{qty}")])
+    rows.append([_btn(t("back"), f"qty:{pid}:{qty}")])
     return InlineKeyboardMarkup(rows)
 
 
 def pay_methods(methods, amount: int) -> InlineKeyboardMarkup:
-    rows = grid(
-        [_btn(f"{m['emoji']} {m['name']}", f"pay:{m['id']}:{amount}") for m in methods],
-        per_row=2,
-    )
-    rows.append([_btn("🏠 Back", "menu:main"), _btn("🚫 ပယ်ဖျက်", MAIN)])
+    rows = grid([_btn(f"{m['emoji']} {m['name']}", f"pay:{m['id']}:{amount}") for m in methods], per_row=2)
+    rows.append([_btn(t("main_menu"), "menu:main"), _btn(t("cancel"), MAIN)])
     return InlineKeyboardMarkup(rows)
 
 
 def pay_details(method, amount: int, user_id: int, code: str) -> InlineKeyboardMarkup:
-    rows = [
+    return InlineKeyboardMarkup(
         [
-            InlineKeyboardButton("📋 နံပါတ်ကိုကူးယူ", callback_data=f"copy:no:{method['account_number']}"),
-            InlineKeyboardButton("📋 အမည်ကိုကူးယူ", callback_data=f"copy:name:{method['account_name']}"),
-        ],
-        [_btn("🔢 အမှတ်အသားကိုကူးယူ", f"copy:ref:{code}")],
-        [_btn("🚫 ပယ်ဖျက်", f"pay:{method['id']}:{amount}")],
-        [_btn("🏠 Main Menu", MAIN)],
-    ]
-    return InlineKeyboardMarkup(rows)
-
+            [
+                _btn(t("copy_number"), f"copy:no:{method['account_number']}"),
+                _btn(t("copy_name"), f"copy:name:{method['account_name']}"),
+            ],
+            [_btn(t("copy_ref"), f"copy:ref:{code}")],
+            [_btn(t("cancel"), f"pay:{method['id']}:{amount}")],
+            [_btn(t("main_menu"), MAIN)],
+        ]
+    )
 
 
 def topup_review(request_id: int) -> InlineKeyboardMarkup:
     """Buttons on the pending-review notice that survives navigation."""
     return InlineKeyboardMarkup(
         [
-            [_btn("🔄 အခြေအနေ စစ်မည်", f"tstatus:{request_id}")],
-            [_btn("🚫 ပယ်ဖျက်မည်", f"tcancel:{request_id}")],
-            [_btn("🏠 Main Menu", MAIN)],
+            [_btn(t("review_status_btn"), f"tstatus:{request_id}")],
+            [_btn(t("review_cancel_btn"), f"tcancel:{request_id}")],
+            [_btn(t("main_menu"), MAIN)],
         ]
     )
 
 
 def admin_topup(request_id: int, user_id: int, amount: int) -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(
-        [
-            [
-                _btn("✅ အတည်ပြု", f"adm:topup:yes:{request_id}"),
-                _btn("❌ ပယ်ဖျက်", f"adm:topup:no:{request_id}"),
-            ]
-        ]
+        [[_btn(t("admin_yes"), f"adm:topup:yes:{request_id}"), _btn(t("admin_no"), f"adm:topup:no:{request_id}")]]
     )
 
 
@@ -206,35 +206,39 @@ def simple(buttons: list[list[InlineKeyboardButton]]) -> InlineKeyboardMarkup:
 def admin_panel() -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(
         [
-            [_btn("➕ Category ထည့်မယ်", "adm:cat:new")],
-            [_btn("🗂 Category စာရင်း", "adm:cat:list")],
-            [_btn("🛍 ထုတ်ကုန်စာရင်း", "adm:prod:list")],
-            [_btn("📥 အော်ဒါမှုများ", "adm:orders")],
-            [_btn("👥 အသုံးပြုသူများ", "adm:users")],
-            [_btn("🖼 Welcome Banner", "adm:banner")],
-            [_btn("📊 အချက်အလက်များ", "adm:stats")],
-            [_btn("🏠 Main Menu", MAIN)],
+            [_btn(t("admin_cat_new"), "adm:cat:new"), _btn(t("admin_cat_list"), "adm:cat:list")],
+            [_btn(t("admin_prod_list"), "adm:prod:list"), _btn(t("admin_orders"), "adm:orders")],
+            [_btn(t("admin_users"), "adm:users"), _btn(t("admin_stats"), "adm:stats")],
+            [_btn(t("admin_banner"), "adm:banner"), _btn(t("admin_lang"), "adm:lang")],
+            [_btn(t("main_menu"), MAIN)],
         ]
     )
 
 
 def admin_product_list(products: list[sqlite3.Row], page: int, pages: int) -> InlineKeyboardMarkup:
     rows = [
-        [_btn(f"{'🟢' if p['is_active'] else '🔴'} {p['name'][:28]} — {p['price']:,}", f"adm:prod:{p['id']}")]
+        [_btn(f"{'🟢' if p['is_active'] else '🔴'} {p['name'][:28]} — {_price(p['price'])}", f"adm:prod:{p['id']}")]
         for p in products
     ]
-    pager = []
-    if page > 0:
-        pager.append(_btn("◀️", f"adm:prod:page:{page - 1}"))
-    pager.append(_btn(f"{page + 1}/{max(pages, 1)}", "adm:prod:list"))
-    if page + 1 < pages:
-        pager.append(_btn("▶️", f"adm:prod:page:{page + 1}"))
+    clamped = max(0, min(page, pages - 1))
+    pager = [_btn(t("prev"), f"adm:prod:page:{max(clamped - 1, 0)}")]
+    pager.append(_btn(t("page", page=clamped + 1, pages=max(pages, 1)), "adm:prod:list"))
+    pager.append(_btn(t("next"), f"adm:prod:page:{min(clamped + 1, pages - 1)}"))
     rows.append(pager)
-    rows.append([_btn("⬅️ Back", "menu:admin"), _btn("🏠 Main Menu", MAIN)])
+    rows.append([_btn(t("back"), "menu:admin"), _btn(t("main_menu"), MAIN)])
     return InlineKeyboardMarkup(rows)
 
 
 def admin_category_list(cats: list[sqlite3.Row]) -> InlineKeyboardMarkup:
-    rows = [[_btn(f"{c['emoji']} {c['name']} (id: {c['id']}) — {c['item_count']} items", f"adm:cat:{c['id']}")] for c in cats]
-    rows.append([_btn("⬅️ Back", "menu:admin"), _btn("🏠 Main Menu", MAIN)])
+    rows = [
+        [_btn(f"{c['emoji']} {c['name']} (id: {c['id']}) — {c['item_count']}", f"adm:cat:{c['id']}")]
+        for c in cats
+    ]
+    rows.append([_btn(t("back"), "menu:admin"), _btn(t("main_menu"), MAIN)])
     return InlineKeyboardMarkup(rows)
+
+
+def language_options() -> InlineKeyboardMarkup:
+    return InlineKeyboardMarkup(
+        [[_btn(f"{meta['flag']} {meta['name']}", f"adm:lang:{code}")] for code, meta in LANGUAGES.items()]
+    )

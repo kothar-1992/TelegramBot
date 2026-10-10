@@ -39,12 +39,30 @@ BOT_TOKEN=123456:ABC-DEF...
 ADMIN_IDS=987654321,123456789
 SHOP_NAME=W3K Digital Pay & Services
 CURRENCY=MMK
-WELCOME_TEXT=👋 Welcome to {shop}
+DEFAULT_LANG=en
 SUPPORT_USERNAME=kothar1992
 DB_PATH=shop.db
 PAGE_SIZE=6
 PROXY=http://127.0.0.1:10808
 ```
+
+`WELCOME_TEXT` ကို မထည့်ခဲ့ပါက ဖုန်တော်သူတိုင်းကို သူ့ **ဘာသာစကားနဲ့** ကြိုဆိုပါမည်။
+
+---
+
+## 2။ 🌐 ဘာသာစကား (English / မြန်မာ)
+
+ဆိုင်က **English ကို အဓိက ဘာသာစကား** အဖြစ် သတ်မှတ်ထားပါတယ်။ မြန်မာစာက အပါအဝင် ပေးစားထားပါတယ်။
+
+| ဘယ်လိုလုပ်လဲ | ဘာလုပ်လဲ |
+|---|---|
+| `/language` (သို့မဟုတ် `🌐 Language` ခလုပ်) | ဘာသာစကား ရွေးချယ်တဲ့ မီနူ |
+| `/setlang my` | အသစ်များလာတဲ့ သူတိုင်းအတွက် default ဘာသာစကား |
+| 🛠 Admin Panel → 🌐 Default language | `/setlang` နဲ့တူတူ |
+
+- **ပထမဆုံး `/start`** မှာ ရွေးစရန် ပေါ်လာပါမည်။ ရွေးပြီးမှ ဘာသာစကားကို database မှာ သိမ်းထားပြီး နောက်ထပ်လည်သွားတိုင်း အသုံးပြုပါမည်
+- Admin က အော်ဒါ အတည်ပြု/ပယ်ဖျက်တဲ့ အကြောင်းကြားချက်ကို **ဖုန်တော်ရဲ့ ဘာသာစကားနဲ့** ပို့ပေးပါမည်
+- စာသားအားလုံး `lang.py` ထဲမှာ ရှိပြီး `t("key")` နဲ့ ခေါ်ပါတယ် — ဘာသာစကားထပ်ထည့်ချင်ရင် အဲဒီဖိုင်ကိုပဲ ပြင်ပါ
 
 ### 🌐 Proxy (အလိုအလို လိုအပ်ပါတယ်)
 
@@ -122,6 +140,7 @@ Bot တစ်ခုလုံးမှာ KBZPay / AYAPAY / CBPAY / Binance Pay /
 | `/paymethods` | ပေးချေးမည့် နည်းလမ်း စာရင်း |
 | `/addpay <emoji> <name> \| <နံပါတ်> \| <အမည်>` | KBZPay/AYAPAY/Binance Pay… ထည့် |
 | `/delpay <id>` | ပေးချေးမည့်နည်းလမ်း ဖျက် |
+| `/setlang <en\|my>` | အသစ်ဖုန်တော်တိုင်းအတွက် default ဘာသာစကား |
 | `/id` | သင့် Telegram ID |
 
 `🛍 ထုတ်ကုန်များ` Main Menu ထဲမှာ **🛠 Admin Panel** ခလုပ်က ဖြတ်လို့လည်းရ — button အသစ်တွေနဲ့
@@ -162,13 +181,19 @@ Bot တစ်ခုလုံးမှာ KBZPay / AYAPAY / CBPAY / Binance Pay /
 ```
 bot.py             အစတွင်းချရန် + handler registration + admin guard
 config.py          .env ဖတ်ခြင်း / settings
+lang.py            ဘာသာစကားအားလုံး စာသားများ (EN + မြန်မာ) — t("key")
 db.py              SQLite schema + query အားလုံး
 keyboards.py       inline keyboard အားလုံး (Back / Main Menu ပါဝင်)
 views.py           စာမျက်နှာတိုင်းကို ရေးသားခြင်း
 router.py          စာမျက်နှာချိန်ချင်း / Back navigation
 handlers_user.py   user command, top-up, order
 handlers_admin.py  catalogue + order + balance + broadcast
+uploads.py         photo-only လက်ခံမှု + magic-byte စစ်ဆေးမှု
 selftest.py        network မလို screen တိုင်းကို စစ်
+selftest_boot.py   boot path မလုပ်ရဘဲ အောင်မြင်လား စစ်
+selftest_infra.py  health endpoint၊ keep-alive၊ database snapshot
+selftest_security.py  document/video တွေ မလက်ခံကြောင်း စစ်
+selftest_topup.py  receipt review + chat clean-up စစ်
 simulate.py        fake bot နဲ့ ဝယ်သွယ်မှု flow အပြည့်အစုံ စမ်း
 ```
 
@@ -177,12 +202,16 @@ simulate.py        fake bot နဲ့ ဝယ်သွယ်မှု flow အပ
 ## 6. စမ်းသပ်ခြင်း
 
 ```powershell
-python selftest.py         # screen အားလုံး၊ caption parser၊ balance/stock တွက်ချက်
-python simulate.py         # /start → catalogue → ဝယ်ခြင်း → အတည်ပြု → ပေးပို့ပြီး → Back
-python selftest_infra.py   # health endpoint၊ keep-alive၊ database snapshot
+python selftest.py            # screen အားလုံး၊ caption parser၊ balance/stock တွက်ချက်
+python simulate.py            # /start → ဘာသာစကား → catalogue → ဝယ်ခြင်း → အတည်ပြု → ပေးပို့ပြီး → Back
+python selftest_boot.py       # boot path / health server
+python selftest_infra.py      # health endpoint၊ keep-alive၊ database snapshot
+python selftest_security.py   # upload လုံခြုံရေး
+python selftest_topup.py      # top-up review + 15 မိနစ် auto-reject
 ```
 
-နှစ်ခုလုံးက network မလို ခင်းစွာ run ပါမည်။
+အားလုံး network မလို ခင်းစွာ run ပါမည်။ `lang.missing_keys()` က ဘာသာစကားတစ်ခုလုံး
+မှာ key မလုံးရှိဘူးဆိုတာ အတည်ပြုပေးပါမည်။
 
 ---
 

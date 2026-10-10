@@ -27,6 +27,7 @@ CREATE TABLE IF NOT EXISTS users (
     username   TEXT,
     full_name  TEXT,
     balance    INTEGER NOT NULL DEFAULT 0,
+    language   TEXT,
     created_at TEXT NOT NULL DEFAULT (datetime('now'))
 );
 
@@ -130,6 +131,10 @@ def _migrate() -> None:
     for name, ddl in (("warranty", "TEXT"), ("tutorial_url", "TEXT"), ("delivery", "TEXT")):
         if name not in columns:
             _exec(f"ALTER TABLE products ADD COLUMN {name} {ddl}")
+
+    user_columns = {row["name"] for row in _rows("PRAGMA table_info(users)")}
+    if "language" not in user_columns:
+        _exec("ALTER TABLE users ADD COLUMN language TEXT")
 
 
 def _seed_payment_methods() -> None:
@@ -261,6 +266,21 @@ def get_user(user_id: int) -> sqlite3.Row | None:
 def get_balance(user_id: int) -> int:
     row = _one("SELECT balance FROM users WHERE user_id = ?", (user_id,))
     return int(row["balance"]) if row else 0
+
+
+def get_language(user_id: int) -> str | None:
+    """The language the customer picked, or None if they have not chosen yet."""
+    row = _one("SELECT language FROM users WHERE user_id = ?", (user_id,))
+    return row["language"] if row else None
+
+
+def set_language(user_id: int, code: str) -> None:
+    _ensure_user(user_id)
+    _exec("UPDATE users SET language = ? WHERE user_id = ?", (code, user_id))
+
+
+def _ensure_user(user_id: int) -> None:
+    _exec("INSERT OR IGNORE INTO users (user_id) VALUES (?)", (user_id,))
 
 
 def change_balance(user_id: int, delta: int) -> int:

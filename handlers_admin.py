@@ -1,18 +1,29 @@
-"""Admin handlers: catalogue management, order review, balances, broadcasts."""
+"""Admin handlers: catalogue management, order review, balances, broadcasts.
+
+Every string comes from `lang.t()`.  Admin screens follow the admin's own
+language setting; messages pushed to customers are rendered in *their*
+language (see `router.notify`, which resolves it per recipient).
+"""
 
 from __future__ import annotations
 
 import asyncio
+import json
 import logging
+from collections.abc import Callable
+
 from telegram import InlineKeyboardButton, InlineKeyboardMarkup, Update
 from telegram.constants import ParseMode
 from telegram.error import TelegramError
 from telegram.ext import ApplicationHandlerStop, ContextTypes
 
 import db
+import handlers_user as user
+import lang
 import router
 import views
 from config import settings
+from lang import t
 from views import esc, money
 
 log = logging.getLogger(__name__)
@@ -21,32 +32,32 @@ log = logging.getLogger(__name__)
 # --------------------------------------------------------------------------- #
 # commands
 # --------------------------------------------------------------------------- #
-#: Demo catalogue — `(category emoji, category name, [(product, price, stock, note)])`
-DEMO_DATA: tuple[tuple[str, str, tuple[tuple[str, int, int, str], ...]], ...] = (
+#: Demo catalogue — `(category emoji, category name, [(product, price, stock, note, warranty, tutorial)])`
+DEMO_DATA: tuple[tuple[str, str, tuple[tuple[str, int, int, str, str, str], ...]], ...] = (
     ("💰", "USDT / Crypto", (
-        ("USDT TRC20", 65_000, 10, "မိနစ်ပိုင်းအတွင်း ပေးပို့ပါမည်။", "30 မိနစ်", "https://t.me/w3ktutorial/1"),
-        ("USDT BEP20", 64_000, 5, "Binance Smart Chain။", "30 မိနစ်", ""),
-        ("USDT TON", 63_000, 0, "ယခုအချိန်တွင် ကုန်မရှိပါ။", "", ""),
+        ("USDT TRC20", 65_000, 10, "Delivered within minutes.", "30 days", "https://t.me/w3ktutorial/1"),
+        ("USDT BEP20", 64_000, 5, "Binance Smart Chain.", "30 days", ""),
+        ("USDT TON", 63_000, 0, "Out of stock right now.", "", ""),
     )),
     ("🤖", "ChatGPT", (
-        ("ChatGPT GO 1 Month (Full Warranty)", 45_000, 3, "30 ရက်အာမခံ။", "30 ရက်", "https://t.me/w3ktutorial/2"),
-        ("ChatGPT Plus 1 Month (10 Day Warranty)", 53_000, 2, "အကောင့်ပေးပို့။", "10 ရက်", "https://t.me/w3ktutorial/3"),
-        ("ChatGPT Plus K12 Edu 2 Year", 0, 0, "ပမာနှင့်ထည့်ရန် ဆက်သွယ်ရန်။", "", ""),
+        ("ChatGPT GO 1 Month (Full Warranty)", 45_000, 3, "Full 30-day warranty.", "30 days", "https://t.me/w3ktutorial/2"),
+        ("ChatGPT Plus 1 Month (10 Day Warranty)", 53_000, 2, "Account is handed over instantly.", "10 days", "https://t.me/w3ktutorial/3"),
+        ("ChatGPT Plus K12 Edu 2 Year", 0, 0, "Ask the admin for stock.", "", ""),
     )),
     ("💼", "Microsoft", (
-        ("Microsoft 365 Personal 1 Month", 12_000, 20, "စုပစ္စည်း အားလုံးပါ။", "30 ရက်", ""),
-        ("Windows 11 Pro Lifetime", 35_000, 8, "တစ်ခါရှည်တည်း။", "အမှန်တကယ်", ""),
+        ("Microsoft 365 Personal 1 Month", 12_000, 20, "All Office apps included.", "30 days", ""),
+        ("Windows 11 Pro Lifetime", 35_000, 8, "One-off purchase, yours forever.", "Lifetime", ""),
     )),
     ("🎨", "Adobe", (
-        ("Adobe CC All Apps 1 Month", 40_000, 4, "Photoshop, Illustrator အားလုံး။", "30 ရက်", ""),
-        ("Photoshop 1 Month", 15_000, 10, "အသုံးပြုသူအများကြိုက်ပါတယ်။", "30 ရက်", ""),
+        ("Adobe CC All Apps 1 Month", 40_000, 4, "Photoshop, Illustrator and more.", "30 days", ""),
+        ("Photoshop 1 Month", 15_000, 10, "Popular with designers.", "30 days", ""),
     )),
     ("📹", "Zoom", (
-        ("Zoom Pro 1 Month", 18_000, 15, "Meeting 500 ကနေ့အထက်။", "30 ရက်", ""),
+        ("Zoom Pro 1 Month", 18_000, 15, "Meetings up to 500.", "30 days", ""),
     )),
     ("🎬", "Design Tools", (
-        ("Canva Pro 1 Year", 25_000, 6, "၁ နှစ်စာများအသုံးပြု။", "၁ နှစ်", ""),
-        ("Canva Team 1 Month", 12_000, 0, "လက်ရှိမရှိပါ။", "", ""),
+        ("Canva Pro 1 Year", 25_000, 6, "A full year of everything.", "1 year", ""),
+        ("Canva Team 1 Month", 12_000, 0, "Sold out at the moment.", "", ""),
     )),
 )
 
@@ -85,8 +96,6 @@ def _clear_demo() -> int:
 
 
 def _read_demo_ids() -> dict:
-    import json
-
     try:
         return json.loads(db.get_setting(DEMO_SETTING) or "{}")
     except (ValueError, TypeError):
@@ -100,21 +109,13 @@ async def cmd_demo(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     if argument.startswith(("clear", "clean", "remove", "ဖျက်")):
         removed = _clear_demo()
         await update.message.reply_text(
-            f"🗑 Demo ထုတ်ကုန် <b>{removed}</b> ခု ဖျက်ပြီးပါပြီ။"
-            if removed
-            else "ℹ️ Demo data မရှိပါ။ အရင်က <code>/demo</code> ရိုက်ဖို့ မလိုပါ။",
-            parse_mode=ParseMode.HTML,
+            t("demo_cleared", count=removed) if removed else t("demo_nothing"), parse_mode=ParseMode.HTML
         )
         return
 
     if db.get_setting(DEMO_SETTING):
-        await update.message.reply_text(
-            "ℹ️ Demo data ရှိနေပါပြီ။ အရင် <code>/demo clear</code> နဲ့ ဖျက်ပါ။",
-            parse_mode=ParseMode.HTML,
-        )
+        await update.message.reply_text(t("demo_exists"), parse_mode=ParseMode.HTML)
         return
-
-    import json
 
     cat_ids, product_ids = _seed_demo()
     db.set_setting(DEMO_SETTING, json.dumps({"categories": cat_ids, "products": product_ids}))
@@ -124,12 +125,7 @@ async def cmd_demo(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         db.change_balance(admin_id, 500_000)  # so the order flow can be tested
 
     await update.message.reply_text(
-        "✅ <b>Demo catalogue ထည့်ပြီးပါပြီ</b>\n\n"
-        f"🗂 Category: <b>{len(cat_ids)}</b> ခု\n"
-        f"🛍 ထုတ်ကုန်: <b>{len(product_ids)}</b> ခု\n"
-        f"💰 သင့်လက်ကောင်း: <b>{money(db.get_balance(admin_id))}</b>\n\n"
-        "🛍 <b>ထုတ်ကုန်များ</b> ကို နှိပါပြီး စမ်းကြည့်ပါ။\n"
-        "🧹 ဖျက်ချင်ရင် <code>/demo clear</code>",
+        t("demo_done", cats=len(cat_ids), products=len(product_ids), balance=money(db.get_balance(admin_id))),
         parse_mode=ParseMode.HTML,
     )
 
@@ -137,17 +133,20 @@ async def cmd_demo(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
 async def cmd_paymethods(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     methods = db.list_payment_methods(active_only=False)
     if not methods:
-        await update.message.reply_text("💳 ပေးချေးမည့်နည်းလမ်း မရှိပါ။")
+        await update.message.reply_text(t("paymethods_none"))
         return
 
-    lines = ["💳 <b>ပေးချေးမည့် နည်းလမ်းများ</b>\n"]
+    lines = [t("paymethods_title")]
     for m in methods:
         flag = "🟢" if m["is_active"] else "🔴"
         number = f" · <code>{esc(m['account_number'])}</code>" if m["account_number"] else ""
-        name = f" · {esc(m['account_name'])}" if m["account_name"] else ""
-        lines.append(f"{flag} <code>{m['id']}</code> · {m['emoji']} {esc(m['name'])}{number}{name}")
-    lines.append("\nပြင်ရန် — <code>/addpay &lt;emoji&gt; &lt;name&gt; | &lt;account&gt; | &lt;name&gt;</code>")
-    lines.append("ဖျက်ရန် — <code>/delpay &lt;id&gt;</code>")
+        holder = f" · {esc(m['account_name'])}" if m["account_name"] else ""
+        lines.append(
+            t("paymethods_item", flag=flag, id=m["id"], emoji=m["emoji"], name=esc(m["name"]), number=number, holder=holder)
+        )
+    lines.append("")
+    lines.append(t("paymethods_edit"))
+    lines.append(t("paymethods_del"))
     await update.message.reply_text("\n".join(lines), parse_mode=ParseMode.HTML)
 
 
@@ -155,7 +154,7 @@ async def cmd_addpay(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None
     """`/addpay 💳 KBZPay | 09xxxxxxxx | YeHtutNaung`"""
     raw = " ".join(update.message.text.split()[1:]).strip()
     if not raw:
-        await update.message.reply_text("⚠️ `/addpay <emoji> <name> | <account number> | <account name>` သုံးပါ။")
+        await update.message.reply_text(t("addpay_usage"))
         return
 
     fields = [f.strip() for f in raw.split("|")]
@@ -168,26 +167,23 @@ async def cmd_addpay(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None
     number = fields[1] if len(fields) > 1 else ""
     holder = fields[2] if len(fields) > 2 else ""
     method_id = db.add_payment_method(name, emoji, holder, number)
-    await update.message.reply_text(
-        f"✅ ထည့်ပြီးပါပြီ — <code>{method_id}</code> · {emoji} {esc(name)}", parse_mode=ParseMode.HTML
-    )
+    await update.message.reply_text(t("addpay_done", id=method_id, emoji=emoji, name=esc(name)), parse_mode=ParseMode.HTML)
 
 
 async def cmd_delpay(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     parts = update.message.text.split()
     if len(parts) < 2 or not parts[1].isdigit():
-        await update.message.reply_text("⚠️ `/delpay <id>` သုံးပါ။")
+        await update.message.reply_text(t("delpay_usage"))
         return
     db.delete_payment_method(int(parts[1]))
-    await update.message.reply_text(f"🗑 ပေးချေးမည့်နည်းလမ်း <code>{parts[1]}</code> ဖျက်ပြီးပါပြီ။")
+    await update.message.reply_text(t("cat_deleted", id=parts[1]))
 
 
 async def cmd_id(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     user = update.effective_user
     await update.message.reply_text(
-        f"🆔 သင့် Telegram ID: <code>{user.id}</code>\n"
-        f"👤 အမည်: {esc(user.full_name)}\n"
-        f"🔑 Admin: {'ဟုတ်ကဲ့' if user.id in settings.admin_ids else 'မဟုတ်'}",
+        t("id_reply", user_id=user.id, name=esc(user.full_name),
+          admin=t("id_yes") if user.id in settings.admin_ids else t("id_no")),
         parse_mode=ParseMode.HTML,
     )
 
@@ -197,7 +193,7 @@ async def cmd_addcat(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None
     raw = " ".join(update.message.text.split()[1:]).strip()
     if not raw:
         db.set_pending(update.effective_user.id, {"action": "category_name"})
-        await update.message.reply_text("🗂 Category အမည် ရိုက်ထည့်ပါ။")
+        await update.message.reply_text(t("addcat_prompt"))
         return
 
     parts = raw.split(maxsplit=1)
@@ -207,41 +203,31 @@ async def cmd_addcat(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None
         emoji, name = "📦", raw
 
     cat_id = db.add_category(name, emoji)
-    await update.message.reply_text(f"✅ Category ထည့်ပြီးပါပြီ — <code>{cat_id}</code> · {emoji} {esc(name)}", parse_mode=ParseMode.HTML)
+    await update.message.reply_text(t("addcat_saved", id=cat_id, emoji=emoji, name=esc(name)), parse_mode=ParseMode.HTML)
 
 
 async def cmd_cats(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     cats = db.list_categories()
     if not cats:
-        await update.message.reply_text("🗂 Category မရှိသေးပါ။ `/addcat <အမည်>` သုံးပါ။")
+        await update.message.reply_text(t("cat_none"))
         return
-    lines = ["🗂 <b>Category စာရင်း</b>\n"]
-    lines += [f"<code>{c['id']}</code> · {c['emoji']} {esc(c['name'])} — {c['item_count']} ခု" for c in cats]
+    lines = [t("cat_list_title")]
+    lines += [t("cat_list_item", id=c["id"], emoji=c["emoji"], name=esc(c["name"]), count=c["item_count"]) for c in cats]
     await update.message.reply_text("\n".join(lines), parse_mode=ParseMode.HTML)
 
 
 async def cmd_delcat(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     parts = update.message.text.split()
     if len(parts) < 2 or not parts[1].isdigit():
-        await update.message.reply_text("⚠️ `/delcat <id>` သုံးပါ။")
+        await update.message.reply_text(t("delcat_usage"))
         return
     db.delete_category(int(parts[1]))
-    await update.message.reply_text(f"🗑 Category <code>{parts[1]}</code> ဖျက်ပြီးပါပြီ။")
+    await update.message.reply_text(t("cat_deleted", id=parts[1]))
 
 
 async def cmd_addproduct(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     db.set_pending(update.effective_user.id, {"action": "product_photo"})
-    await update.message.reply_text(
-        "🛍 <b>ထုတ်ကုန်ထည့်ရန်</b>\n\n"
-        "အဆင့် (၁) — ထုတ်ကုန်ရုပ်ပုံကို ပို့ပါ။\n\n"
-        "အဆင့် (၂) — ပို့လိုက်တဲ့ ရုပ်ပုံနဲ့အတူ Caption ရိုက်ထည့်ပါ —\n\n"
-        "<code>အမည် | စျေးကြေး | Category | ကုန်ပမာနှင့်</code>\n"
-        "<code>USDT TRC20 | 65000 | Crypto | 10</code>\n\n"
-        "• Category နဲ့ ကုန်ပမာနှင့် ကို ချန်လို့ရပါတယ်။\n"
-        "• ကုန်ပမာနှင့် မထည့်ရင် အကန့်မဲ့အဖြစ် သတ်မှတ်ပါမည်။\n"
-        "• Caption ရဲ့ ပထမဆုံးလိုင်းအောက်မှာ ကျန်ကို description အဖြစ် သိမ်းပါမည်။",
-        parse_mode=ParseMode.HTML,
-    )
+    await update.message.reply_text(t("addproduct_prompt"), parse_mode=ParseMode.HTML)
 
 
 def parse_caption(caption: str) -> tuple[str, int, int | None, str, int] | None:
@@ -286,11 +272,19 @@ def parse_caption(caption: str) -> tuple[str, int, int | None, str, int] | None:
 async def cmd_products(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     rows = db.list_products(None, limit=15, active_only=False)
     if not rows:
-        await update.message.reply_text("🛍 ထုတ်ကုန် မရှိသေးပါ။ `/addproduct` သုံးပါ။")
+        await update.message.reply_text(t("prod_none"))
         return
-    lines = ["🛍 <b>ထုတ်ကုန်စာရင်း</b>\n"]
+    lines = [t("prod_list_title")]
     lines += [
-        f"<code>{p['id']}</code> · {'🟢' if p['is_active'] else '🔴'} {esc(p['name'])} — {money(p['price'])}"
+        t(
+            "paymethods_item",
+            flag="🟢" if p["is_active"] else "🔴",
+            id=p["id"],
+            emoji="",
+            name=esc(p["name"]),
+            number=f" — {money(p['price'])}",
+            holder="",
+        )
         for p in rows
     ]
     await update.message.reply_text("\n".join(lines), parse_mode=ParseMode.HTML)
@@ -299,25 +293,26 @@ async def cmd_products(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
 async def cmd_delproduct(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     parts = update.message.text.split()
     if len(parts) < 2 or not parts[1].isdigit():
-        await update.message.reply_text("⚠️ `/delproduct <id>` သုံးပါ။")
+        await update.message.reply_text(t("delproduct_usage"))
         return
     db.delete_product(int(parts[1]))
-    await update.message.reply_text(f"🗑 ထုတ်ကုန် <code>{parts[1]}</code> ဖျက်ပြီးပါပြီ။")
+    await update.message.reply_text(t("prod_deleted"))
 
 
 async def cmd_toggle(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     parts = update.message.text.split()
     if len(parts) < 2 or not parts[1].isdigit():
-        await update.message.reply_text("⚠️ `/toggle <id>` သုံးပါ။")
+        await update.message.reply_text(t("toggle_usage"))
         return
     pid = int(parts[1])
     product = db.get_product(pid)
     if product is None:
-        await update.message.reply_text("⚠️ ထုတ်ကုန် မတွေ့ပါ။")
+        await update.message.reply_text(t("not_found"))
         return
     db.set_product_active(pid, not product["is_active"])
     await update.message.reply_text(
-        f"{'🟢 ပြန်ဖွင့်ပြီး' if not product['is_active'] else '🔴 ပိတ်ပြီး'} — {esc(product['name'])}"
+        t("prod_toggled", state=t("prod_on") if not product["is_active"] else t("prod_off"), name=esc(product["name"])),
+        parse_mode=ParseMode.HTML,
     )
 
 
@@ -325,28 +320,35 @@ async def cmd_give(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     """`/give <user_id> <amount>` — add (or subtract with a minus) balance."""
     parts = update.message.text.split()
     if len(parts) != 3 or not parts[1].lstrip("-").isdigit() or not parts[2].lstrip("-").isdigit():
-        await update.message.reply_text("⚠️ `/give <user_id> <amount>` သုံးပါ။")
+        await update.message.reply_text(t("give_usage"))
         return
     user_id, amount = int(parts[1]), int(parts[2])
     if db.get_user(user_id) is None:
-        await update.message.reply_text("⚠️ အဲဒီ user ကို မတွေ့ပါ။")
+        await update.message.reply_text(t("err_user_not_found"))
         return
     new_balance = db.change_balance(user_id, amount)
-    await update.message.reply_text(f"✅ ID <code>{user_id}</code> လက်ကောင်း: {money(new_balance)}", parse_mode=ParseMode.HTML)
-    await _safe_notify(context, user_id, f"💰 လက်ကောင်းအသစ်: {money(new_balance)}")
+    await update.message.reply_text(t("give_done", user_id=user_id, balance=money(new_balance)), parse_mode=ParseMode.HTML)
+    await _safe_notify(context, user_id, t("give_notify", balance=money(new_balance)))
 
 
 async def cmd_balance(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     parts = update.message.text.split()
     if len(parts) != 2 or not parts[1].lstrip("-").isdigit():
-        await update.message.reply_text("⚠️ `/balance <user_id>` သုံးပါ။")
+        await update.message.reply_text(t("balance_usage"))
         return
     row = db.get_user(int(parts[1]))
     if row is None:
-        await update.message.reply_text("⚠️ အဲဒီ user ကို မတွေ့ပါ။")
+        await update.message.reply_text(t("err_user_not_found"))
         return
     await update.message.reply_text(
-        f"👤 {esc(row['full_name'] or '—')}\n🆔 <code>{row['user_id']}</code>\n💰 {money(row['balance'])}",
+        t(
+            "admin_user_card",
+            name=esc(row["full_name"] or "—"),
+            user_id=row["user_id"],
+            handle=esc(row["username"] or "—"),
+            balance=money(row["balance"]),
+            orders=len(db.user_orders(row["user_id"], limit=5)),
+        ),
         parse_mode=ParseMode.HTML,
     )
 
@@ -355,7 +357,7 @@ async def cmd_broadcast(update: Update, context: ContextTypes.DEFAULT_TYPE) -> N
     text = " ".join(update.message.text.split()[1:]).strip()
     if not text:
         db.set_pending(update.effective_user.id, {"action": "broadcast"})
-        await update.message.reply_text("📢 ပို့ရန် မက်ဆော်စာကို ရိုက်ထည့်ပါ။")
+        await update.message.reply_text(t("broadcast_prompt"))
         return
     db.set_pending(update.effective_user.id, {"action": "broadcast", "text": text})
     await _send_broadcast(update, context)
@@ -367,7 +369,7 @@ async def _send_broadcast(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
     if not text:
         return
     ok = failed = 0
-    status = await update.effective_message.reply_text("📢 ပို့နေပါသည်...")
+    status = await update.effective_message.reply_text(t("broadcast_sending"))
     for row in db._rows("SELECT user_id FROM users"):
         try:
             await context.bot.send_message(row["user_id"], text, parse_mode=ParseMode.HTML)
@@ -376,25 +378,38 @@ async def _send_broadcast(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
             failed += 1
         await asyncio.sleep(0.05)
     db.set_pending(update.effective_user.id, None)
-    await status.edit_text(f"📢 ပို့ပြီးပါပြီ — အောင်မြင် {ok} · မအောင်မြင် {failed}")
+    await status.edit_text(t("broadcast_done", ok=ok, failed=failed))
 
 
 async def cmd_setbanner(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     if db.get_setting("banner_photo"):
         db.set_setting("banner_photo", None)
-        await update.message.reply_text("🖼 Welcome banner ဖယ်ရှားပြီးပါပြီ။")
+        await update.message.reply_text(t("setbanner_cleared"))
         return
     db.set_pending(update.effective_user.id, {"action": "banner"})
-    await update.message.reply_text("🖼 ကြောင်းပြနှင့်ပြသမည့် welcome banner ပုံကို ပို့ပါ။")
+    await update.message.reply_text(t("setbanner_prompt"))
 
 
 async def cmd_setname(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     name = " ".join(update.message.text.split()[1:]).strip()
     if not name:
-        await update.message.reply_text("⚠️ `/setname <ဆိုင်အမည်>` သုံးပါ။")
+        await update.message.reply_text(t("setname_usage"))
         return
     db.set_setting("shop_name", name)
-    await update.message.reply_text(f"✅ ဆိုင်အမည်: {esc(name)}", parse_mode=ParseMode.HTML)
+    await update.message.reply_text(t("setname_done", name=esc(name)), parse_mode=ParseMode.HTML)
+
+
+async def cmd_setlang(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """`/setlang my` — the language new customers get by default."""
+    raw = " ".join(update.message.text.split()[1:]).strip().lower()
+    if not lang.is_supported(raw):
+        await update.message.reply_text(
+            "\n".join([f"🌐 {meta['flag']} <code>{code}</code> — {meta['name']}" for code, meta in lang.LANGUAGES.items()]),
+            parse_mode=ParseMode.HTML,
+        )
+        return
+    db.set_setting("default_lang", raw)
+    await update.message.reply_text(t("lang_admin_set", name=lang.native_name(raw)), parse_mode=ParseMode.HTML)
 
 
 async def cmd_pending(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -405,6 +420,7 @@ async def cmd_pending(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
 # photo / text wizard (admin-only, runs before the user handlers)
 # --------------------------------------------------------------------------- #
 async def on_admin_photo(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    user.resolve_language(update)
     pending = db.get_pending(update.effective_user.id) or {}
     action = pending.get("action")
     if action not in {"product_photo", "banner", "topup_receipt"}:
@@ -416,27 +432,26 @@ async def on_admin_photo(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
     if action == "banner":
         db.set_setting("banner_photo", file_id)
         db.set_pending(update.effective_user.id, None)
-        await update.message.reply_text("🖼 Welcome banner သိမ်းပြီးပါပြီ။ /setbanner နဲ့ ဖျက်နိုင်ပါတယ်။")
+        await update.message.reply_text(t("banner_set_hint"))
         raise ApplicationHandlerStop
 
     if action == "product_photo":
         db.set_pending(update.effective_user.id, {"action": "product_caption", "photo_id": file_id})
-        await update.message.reply_text(
-            "📝 အဆင့် (၂) — ရုပ်ပုံနဲ့အတူ Caption ရိုက်ထည့်ပါ။\n\n"
-            "<code>အမည် | စျေးကြေး | Category | ကုန်ပမာနှင့်</code>\n<code>USDT TRC20 | 65000 | Crypto | 10</code>",
-            parse_mode=ParseMode.HTML,
-        )
+        await update.message.reply_text(t("addproduct_caption_prompt"), parse_mode=ParseMode.HTML)
         raise ApplicationHandlerStop
 
     if action == "topup_receipt":
         # A receipt meant for the customer support flow — store and notify admins.
-        from handlers_user import on_photo as user_on_photo  # local import avoids a cycle
+        from handlers_user import (
+            on_photo as user_on_photo,  # local import avoids a cycle
+        )
 
         await user_on_photo(update, context)
         raise ApplicationHandlerStop
 
 
 async def on_admin_text(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    user.resolve_language(update)
     pending = db.get_pending(update.effective_user.id) or {}
     action = pending.get("action")
     if action is None:
@@ -447,7 +462,7 @@ async def on_admin_text(update: Update, context: ContextTypes.DEFAULT_TYPE) -> N
     if action == "product_caption":
         parsed = parse_caption(text)
         if parsed is None:
-            await update.message.reply_text("⚠️ Caption ပုံစံ မမှန်ပါ — `<အမည်> | <စျေးကြေး> | <Category>` အတိုင်း ထည့်ပါ။")
+            await update.message.reply_text(t("addproduct_bad_caption"))
             return
         name, price, category_id, description, stock = parsed
         product_id = db.add_product(
@@ -460,13 +475,16 @@ async def on_admin_text(update: Update, context: ContextTypes.DEFAULT_TYPE) -> N
         )
         db.set_pending(update.effective_user.id, None)
         cat = db.get_category(category_id) if category_id else None
-        cat_label = f"{cat['emoji']} {esc(cat['name'])}" if cat else "Category မသတ်မှတ်"
+        cat_label = f"{cat['emoji']} {esc(cat['name'])}" if cat else t("prod_no_category")
         await update.message.reply_text(
-            "✅ <b>ထုတ်ကုန် ထည့်ပြီးပါပြီ</b>\n\n"
-            f"<code>#{product_id}</code> — {esc(name)}\n"
-            f"💵 {money(price)}\n"
-            f"📦 ကုန်ပမာနှင့်: {'အကန့်မဲ့' if stock < 0 else stock}\n"
-            f"🗂 {cat_label}",
+            t(
+                "prod_saved",
+                id=product_id,
+                name=esc(name),
+                price=money(price),
+                stock=t("product_stock_inf") if stock < 0 else stock,
+                category=cat_label,
+            ),
             parse_mode=ParseMode.HTML,
         )
         raise ApplicationHandlerStop
@@ -474,10 +492,12 @@ async def on_admin_text(update: Update, context: ContextTypes.DEFAULT_TYPE) -> N
     if action == "category_name":
         db.set_pending(update.effective_user.id, None)
         if not text:
-            await update.message.reply_text("⚠️ အမည် လိုပါတယ်။")
+            await update.message.reply_text(t("not_found"))
             return
         cat_id = db.add_category(text, "📦")
-        await update.message.reply_text(f"✅ Category ထည့်ပြီးပါပြီ — <code>{cat_id}</code> · 📦 {esc(text)}", parse_mode=ParseMode.HTML)
+        await update.message.reply_text(
+            t("addcat_saved", id=cat_id, emoji="📦", name=esc(text)), parse_mode=ParseMode.HTML
+        )
         raise ApplicationHandlerStop
 
     if action == "broadcast":
@@ -491,6 +511,7 @@ async def on_admin_text(update: Update, context: ContextTypes.DEFAULT_TYPE) -> N
 # admin callbacks
 # --------------------------------------------------------------------------- #
 async def on_admin_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    user.resolve_language(update)
     query = update.callback_query
     data = query.data
     parts = data.split(":")
@@ -498,14 +519,19 @@ async def on_admin_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) 
 
     if head == "cat" and len(parts) >= 3 and parts[2] == "new":
         db.set_pending(query.from_user.id, {"action": "category_name"})
-        await query.message.reply_text("🗂 Category အမည် ရိုက်ထည့်ပါ။")
+        await query.message.reply_text(t("addcat_prompt"))
         return
 
     if head == "banner":
         await cmd_setbanner_from_query(update, context)
         return
 
-    if head == "user" and len(parts) >= 3 and parts[2] == "zero" and parts[3].isdigit():
+    if head == "lang" and len(parts) >= 3 and parts[2] in lang.LANGUAGES:
+        db.set_setting("default_lang", parts[2])
+        await query.answer(t("lang_admin_set", name=lang.native_name(parts[2])), show_alert=True)
+        return
+
+    if head == "user" and len(parts) >= 4 and parts[2] == "zero" and parts[3].isdigit():
         await _zero_balance(update, context, int(parts[3]))
         return
 
@@ -549,25 +575,26 @@ async def cmd_setbanner_from_query(update: Update, context: ContextTypes.DEFAULT
     query = update.callback_query
     if db.get_setting("banner_photo"):
         db.set_setting("banner_photo", None)
-        await query.answer("🖼 Banner ဖျက်ပြီးပါပြီ", show_alert=True)
+        await query.answer(t("banner_cleared_alert"), show_alert=True)
         return
     db.set_pending(query.from_user.id, {"action": "banner"})
-    await query.answer("ပုံပို့ပါ 📷", show_alert=True)
+    await query.answer(t("banner_sent"), show_alert=True)
 
 
 async def _user_card(update: Update, context: ContextTypes.DEFAULT_TYPE, user_id: int) -> None:
     query = update.callback_query
     row = db.get_user(user_id)
     if row is None:
-        await query.answer("⚠️ user မတွေ့ပါ။", show_alert=True)
+        await query.answer(t("err_user_not_found"), show_alert=True)
         return
     orders = db.user_orders(user_id, limit=5)
-    text = (
-        f"👤 <b>{esc(row['full_name'] or '—')}</b>\n"
-        f"🆔 <code>{row['user_id']}</code>\n"
-        f"🕐 @{esc(row['username'] or '—')}\n"
-        f"💰 လက်ကောင်း: <b>{money(row['balance'])}</b>\n"
-        f"🧾 အော်ဒါ {len(orders)} ခု"
+    text = t(
+        "admin_user_card",
+        name=esc(row["full_name"] or "—"),
+        user_id=row["user_id"],
+        handle=esc(row["username"] or "—"),
+        balance=money(row["balance"]),
+        orders=len(orders),
     )
     keyboard = [
         [
@@ -577,7 +604,7 @@ async def _user_card(update: Update, context: ContextTypes.DEFAULT_TYPE, user_id
         ],
         [
             InlineKeyboardButton("-10,000", callback_data=f"adm:user:add:{user_id}:-10000"),
-            InlineKeyboardButton("💵 Balance သတ်မှတ်", callback_data=f"adm:user:zero:{user_id}"),
+            InlineKeyboardButton(t("admin_zero"), callback_data=f"adm:user:zero:{user_id}"),
         ],
     ]
     await query.message.reply_text(text, reply_markup=InlineKeyboardMarkup(keyboard), parse_mode=ParseMode.HTML)
@@ -587,27 +614,33 @@ async def _quick_add(update: Update, context: ContextTypes.DEFAULT_TYPE, user_id
     query = update.callback_query
     new_balance = db.change_balance(user_id, amount)
     await query.answer(f"✅ {money(amount)} → {money(new_balance)}", show_alert=True)
-    verb = "💰 လက်ကောင်းဖြည့်ပြီး" if amount > 0 else "💸 လက်ကောင်းနှုတ်ပြီး"
-    await _safe_notify(context, user_id, f"{verb}\n\nကျန်လက်ကောင်း: <b>{money(new_balance)}</b>")
+    verb = f"💰 {t('add_note')}" if amount > 0 else f"💸 {t('add_note_sub')}"
+    await _safe_notify(context, user_id, t("quick_add_notify", verb=verb, balance=money(new_balance)))
 
 
 async def _zero_balance(update: Update, context: ContextTypes.DEFAULT_TYPE, user_id: int) -> None:
     query = update.callback_query
     current = db.get_balance(user_id)
     db.change_balance(user_id, -current)
-    await query.answer("💵 လက်ကောင်း 0 သို့ ပြောင်းပြီးပါပြီ", show_alert=True)
-    await _safe_notify(context, user_id, f"💵 လက်ကောင်းသတ်မှတ်ဖြစ်ပြီး — ကျန်လက်ကောင်း: <b>{money(0)}</b>")
+    await query.answer(t("admin_zero"), show_alert=True)
+    await _safe_notify(context, user_id, t("zero_notify", balance=money(db.get_balance(user_id))))
 
 
 async def _safe_notify(
     context: ContextTypes.DEFAULT_TYPE,
     user_id: int,
-    text: str,
+    text: str | Callable[[], str],
     reply_markup: InlineKeyboardMarkup | None = None,
+    *,
+    language: str | None = None,
 ) -> None:
-    """Notify a user without letting a blocked bot break the admin's action."""
+    """Notify a user without letting a blocked bot break the admin's action.
+
+    Pass a thunk for `text` so the body is built in the *recipient's* language
+    rather than the admin's.
+    """
     try:
-        await router.notify(context, user_id, text, reply_markup)
+        await router.notify(context, user_id, text, reply_markup, language=language)
     except TelegramError:
         log.warning("Could not notify user %s", user_id, exc_info=True)
 
@@ -616,31 +649,29 @@ async def _product_card(update: Update, context: ContextTypes.DEFAULT_TYPE, prod
     query = update.callback_query
     p = db.get_product(product_id)
     if p is None:
-        await query.answer("⚠️ ထုတ်ကုန် မတွေ့ပါ။", show_alert=True)
+        await query.answer(t("not_found"), show_alert=True)
         return
     cat_label = f"{p['cat_emoji']} {esc(p['cat_name'])}" if p["cat_name"] else "—"
-    text = (
-        f"{'🟢' if p['is_active'] else '🔴'} <b>{esc(p['name'])}</b>\n\n"
-        f"<code>#{p['id']}</code>\n"
-        f"💵 စျေးကြေး: <b>{money(p['price'])}</b>\n"
-        f"📦 ကုန်ပမာနှင့်: {'အကန့်မဲ့' if p['stock'] < 0 else p['stock']}\n"
-        f"🗂 {cat_label}"
+    text = "\n".join(
+        [
+            f"{'🟢' if p['is_active'] else '🔴'} <b>{esc(p['name'])}</b>",
+            "",
+            f"<code>#{p['id']}</code>",
+            t("prod_admin_price", price=money(p["price"])),
+            t("prod_admin_stock", stock=t("product_stock_inf") if p["stock"] < 0 else p["stock"]),
+            t("prod_admin_cat", category=cat_label),
+        ]
     )
     keyboard = [
-        [
-            InlineKeyboardButton(
-                "🔴 ဖွင့်ပါ" if p["is_active"] else "🟢 ပြန်ဖွင့်ပါ",
-                callback_data=f"adm:prod:toggle:{product_id}",
-            )
-        ],
-        [InlineKeyboardButton("🗑 ဖျက်ပါ", callback_data=f"adm:prod:del:{product_id}")],
+        [InlineKeyboardButton(t("prod_hide_btn") if p["is_active"] else t("prod_show_btn"),
+                              callback_data=f"adm:prod:toggle:{product_id}")],
+        [InlineKeyboardButton(t("prod_del_btn"), callback_data=f"adm:prod:del:{product_id}")],
     ]
+    markup = InlineKeyboardMarkup(keyboard)
     if p["photo_id"]:
-        await query.message.reply_photo(
-            p["photo_id"], caption=text, reply_markup=InlineKeyboardMarkup(keyboard), parse_mode=ParseMode.HTML
-        )
+        await query.message.reply_photo(p["photo_id"], caption=text, reply_markup=markup, parse_mode=ParseMode.HTML)
     else:
-        await query.message.reply_text(text, reply_markup=InlineKeyboardMarkup(keyboard), parse_mode=ParseMode.HTML)
+        await query.message.reply_text(text, reply_markup=markup, parse_mode=ParseMode.HTML)
 
 
 async def _toggle_product(update: Update, context: ContextTypes.DEFAULT_TYPE, product_id: int) -> None:
@@ -649,18 +680,19 @@ async def _toggle_product(update: Update, context: ContextTypes.DEFAULT_TYPE, pr
         return
     db.set_product_active(product_id, not p["is_active"])
     await update.callback_query.answer(
-        f"{'🔴 ပိတ်ပြီး' if p['is_active'] else '🟢 ပြန်ဖွင့်ပြီး'} — {esc(p['name'][:30])}", show_alert=True
+        t("prod_toggled", state=t("prod_off") if p["is_active"] else t("prod_on"), name=esc(p["name"][:30])),
+        show_alert=True,
     )
 
 
 async def _delete_product(update: Update, context: ContextTypes.DEFAULT_TYPE, product_id: int) -> None:
     db.delete_product(product_id)
-    await update.callback_query.answer("🗑 ဖျက်ပြီးပါပြီ", show_alert=True)
+    await update.callback_query.answer(t("prod_deleted"), show_alert=True)
 
 
 async def _delete_category(update: Update, context: ContextTypes.DEFAULT_TYPE, cat_id: int) -> None:
     db.delete_category(cat_id)
-    await update.callback_query.answer("🗑 Category ဖျက်ပြီးပါပြီ", show_alert=True)
+    await update.callback_query.answer(t("cat_deleted", id=cat_id), show_alert=True)
     await router.go(update, context, "adm:cat:list")
 
 
@@ -668,43 +700,46 @@ async def _order_action(update: Update, context: ContextTypes.DEFAULT_TYPE, acti
     query = update.callback_query
     order = db.get_order(order_id)
     if order is None:
-        await query.answer("⚠️ အော်ဒါ မတွေ့ပါ။", show_alert=True)
+        await query.answer(t("err_no_order"), show_alert=True)
         return
     product = db.get_product(order["product_id"])
     buyer = db.get_user(order["user_id"])
     buyer_handle = f"@{esc(buyer['username'])}" if buyer and buyer["username"] else "—"
+    buyer_lang = (buyer["language"] if buyer else None) or lang.DEFAULT_LANG
 
     if action == "yes":
         db.set_order_status(order_id, "approved")
-        text = (
-            "✅ <b>အော်ဒါ အတည်ပြုပြီး</b>\n\n"
-            f"<code>#{order_id}</code> — {esc(product['name'] if product else '—')}\n"
-            f"🧮 x{order['qty']} · {money(order['total'])}\n"
-            f"👤 သင့်အတွက် ({buyer_handle})\n\n"
-            "Admin က ပစ္စည်းပေးပို့ပေးပါမည်။ ရရှိပြီးရင် အောက်က ခလုပ်ပေးပါ။"
-        )
-        kb = InlineKeyboardMarkup(
-            [[InlineKeyboardButton("✅ လက်ခံရရှိပြီး", callback_data=f"usr:deliver:{order_id}")]]
-        )
+
+        def body() -> str:
+            return t(
+                "order_approved",
+                id=order_id,
+                product=esc(product["name"] if product else "—"),
+                qty=order["qty"],
+                total=money(order["total"]),
+                handle=buyer_handle,
+            )
+
+        markup = InlineKeyboardMarkup([[InlineKeyboardButton(t("deliver_btn"), callback_data=f"usr:deliver:{order_id}")]])
     elif action == "no":
         db.set_order_status(order_id, "rejected")
         new_balance = db.change_balance(order["user_id"], order["total"])
-        text = (
-            "❌ <b>အော်ဒါ ပယ်ဖျက်ပြီး</b>\n\n"
-            f"<code>#{order_id}</code>\n\n"
-            f"💰 ငွေပြန်အမည်: {money(order['total'])}\n"
-            f"💵 ကျန်လက်ကောင်း: {money(new_balance)}"
-        )
-        kb = None
+
+        def body() -> str:
+            return t("order_refund", id=order_id, total=money(order["total"]), balance=money(new_balance))
+
+        markup = None
     elif action == "done":
         db.set_order_status(order_id, "delivered")
-        text = f"🔵 <b>အော်ဒါ #{order_id}</b> — ပေးပြီးသွင်းပါပြီ။"
-        kb = None
+
+        def body() -> str:
+            return t("admin_done", id=order_id)
+
+        markup = None
     else:
         return
 
-    await _safe_notify(context, order["user_id"], text, kb)
-
+    await _safe_notify(context, order["user_id"], body, markup, language=buyer_lang)
     await _paint_admin_notice(query, f"🔁 <code>#{order_id}</code> → <b>{action}</b>", "order")
 
 
@@ -712,40 +747,47 @@ async def _topup_action(update: Update, context: ContextTypes.DEFAULT_TYPE, requ
     query = update.callback_query
     request = db.get_topup(request_id)
     if request is None:
-        await query.answer("⚠️ တင်ဆက်မှု မတွေ့ရဘူး။", show_alert=True)
+        await query.answer(t("not_found"), show_alert=True)
         return
     if request["status"] != "pending":
-        await query.answer("ℹ️ ဤတင်ဆက်မှုကို ရင်းနှီးမှ ဖြေပြီးသားပါ။", show_alert=True)
+        await query.answer(t("err_already_done"), show_alert=True)
         return
 
     user_id, amount = int(request["user_id"]), int(request["amount"])
+    buyer = db.get_user(user_id)
+    buyer_lang = (buyer["language"] if buyer else None) or lang.DEFAULT_LANG
+
     if approve:
         new_balance = db.change_balance(user_id, amount)
         db.resolve_topup(request_id, "approved")
-        text = (
-            "✅ <b>သိန်းငွေ အတည်ပြုပြီးပါပြီ</b>\n\n"
-            f"🔖 အမှတ်အသား — <code>#{request_id}</code>\n"
-            f"💵 ထည့်သွင်းသော: {money(amount)}\n"
-            f"💰 <b>လက်ကောင်း ကျန်ရှိ: {money(new_balance)}</b>\n\n"
-            "🛍 ထုတ်ကုန်များ ဝယ်ယူနိုင်ပါပြီ။"
-        )
+
+        def body() -> str:
+            return "\n".join(
+                [
+                    t("approve_title", id=request_id),
+                    t("approve_amount", amount=money(amount)),
+                    t("approve_balance", balance=money(new_balance)),
+                ]
+            )
+
     else:
         db.resolve_topup(request_id, "rejected")
-        text = (
-            "❌ <b>သိန်းငွေဖြည့်မှု ပယ်ဖျက်ပြီး</b>\n\n"
-            f"🔖 အမှတ်အသား — <code>#{request_id}</code>\n"
-            "Receipt ကို ပြန်စစ်ဆေးပေးပါ။ အကယ်မှမဟုတ်ပါ။"
-        )
 
-    await _safe_notify(context, user_id, text)
+        def body() -> str:
+            return t("reject_title", id=request_id)
+
+    await _safe_notify(context, user_id, body, language=buyer_lang)
     if approve:
         await router.replace_notice(
             context,
             user_id,
             request["notice_message_id"],
-            "\n".join(p.text for p in views.topup_review(request_id, db.get_balance(user_id))),
+            lambda: "\n".join(
+                p.text for p in views.topup_review(request_id, db.get_balance(user_id))
+            ),
+            language=buyer_lang,
         )
-    verdict = "အတည်ပြုပြီး" if approve else "ပယ်ဖျက်ပြီး"
+    verdict = t("review_approved") if approve else t("review_rejected")
     await _paint_admin_notice(query, f"💸 <code>#{request_id}</code> → <b>{verdict}</b>", "topup")
 
 
@@ -756,25 +798,27 @@ async def _expire_topups(context: ContextTypes.DEFAULT_TYPE) -> int:
         request_id = int(request["id"])
         db.resolve_topup(request_id, "expired")
         user_id = int(request["user_id"])
+        buyer = db.get_user(user_id)
+        buyer_lang = (buyer["language"] if buyer else None) or lang.DEFAULT_LANG
         await router.replace_notice(
             context,
             user_id,
             request["notice_message_id"],
-            "\n".join(p.text for p in views.topup_review(request_id, db.get_balance(user_id))),
+            lambda rid=request_id, uid=user_id: "\n".join(
+                p.text for p in views.topup_review(rid, db.get_balance(uid))
+            ),
+            language=buyer_lang,
         )
         await _safe_notify(
             context,
             user_id,
-            "⏰ <b>သိန်းငွေဖြည့်မှု အချိန်ကုန်သွားပါပြီ</b>\n\n"
-            f"{settings.review_minutes} မိနစ်အတွင်း Admin က မစစ်ဆေးနိုင်ခဲ့သဖြင့် ပယ်ဖျက်ပြီးပါပြီ။\n"
-            "💰 လက်ကောင်း မထည့်ထားပါ။ ထပ်ပို့လိုပါက ပြန်လုပ်ဆင်းပါ။",
+            lambda minutes=settings.review_minutes: t("expire_title", minutes=minutes),
+            language=buyer_lang,
         )
         expired += 1
     if expired:
         log.info("Auto-rejected %d stale top-up request(s)", expired)
     return expired
-
-
 
 
 async def _paint_admin_notice(query, text: str, tag: str) -> None:

@@ -28,11 +28,13 @@ import db
 import handlers_admin as admin
 import handlers_user as user
 import health
+import lang
 import router
 import uploads
 import views
 from config import is_admin, settings
 from handlers_user import notify_admins
+from lang import t
 from views import esc
 
 logging.basicConfig(
@@ -62,6 +64,7 @@ ADMIN_COMMANDS = {
     "paymethods": admin.cmd_paymethods,
     "addpay": admin.cmd_addpay,
     "delpay": admin.cmd_delpay,
+    "setlang": admin.cmd_setlang,
 }
 
 
@@ -84,49 +87,59 @@ UNTRUSTED_UPLOADS = (
 
 async def on_rejected_file(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     """Refuse documents/archives/videos without ever touching the disk."""
-    await update.message.reply_text(uploads.REJECT_TEXT, parse_mode=ParseMode.HTML)
+    user.resolve_language(update)
+    await update.message.reply_text(uploads.reject_text(), parse_mode=ParseMode.HTML)
     raise ApplicationHandlerStop
 
 
 async def _user_topup_action(update: Update, context: ContextTypes.DEFAULT_TYPE, data: str) -> None:
     """`tstatus:<id>` / `tcancel:<id>` — the customer's side of the review."""
+    lang_code = user.resolve_language(update)
     query = update.callback_query
     kind, _, raw_id = data.partition(":")
     request = db.get_topup(int(raw_id))
     if request is None or request["user_id"] != update.effective_user.id:
-        await query.answer("⚠️ တင်ဆက်မှု မတွေ့ရဘူး။", show_alert=True)
+        await query.answer(t("not_found"), show_alert=True)
         return
 
     request_id = int(request["id"])
     if kind == "tcancel" and request["status"] == "pending":
         db.resolve_topup(request_id, "rejected")
-        await query.answer("🚫 ပယ်ဖျက်ပြီးပါပြီ", show_alert=True)
+        await query.answer(t("review_cancelled"), show_alert=True)
     elif request["status"] == "pending":
-        await query.answer(f"🟡 စောင့်ဆိုင်းငံ့ — မိနစ် {settings.review_minutes} ခန့် ကျန်ပါသေးသည်", show_alert=True)
+        await query.answer(t("review_still_pending", minutes=settings.review_minutes), show_alert=True)
         return
     else:
-        await query.answer("ℹ️ ဤတင်ဆက်မှုကို ရင်းနှီးမှ ဖြေပြီးသားပါ။", show_alert=True)
+        await query.answer(t("review_already"), show_alert=True)
         return
 
-    await _replace_review_notice(context, request_id, int(request["user_id"]))
+    await _replace_review_notice(context, request_id, int(request["user_id"]), lang_code)
 
 
-async def _replace_review_notice(context: ContextTypes.DEFAULT_TYPE, request_id: int, user_id: int) -> None:
+async def _replace_review_notice(
+    context: ContextTypes.DEFAULT_TYPE, request_id: int, user_id: int, language: str | None = None
+) -> None:
     request = db.get_topup(request_id)
     if not request:
         return
-    body = "\n".join(p.text for p in views.topup_review(request_id, db.get_balance(user_id)))
+    def body() -> str:
+        return "\n".join(p.text for p in views.topup_review(request_id, db.get_balance(user_id)))
+
     if request["notice_message_id"]:
-        await router.replace_notice(context, user_id, request["notice_message_id"], body)
+        await router.replace_notice(context, user_id, request["notice_message_id"], body, language=language)
     else:
-        await router.notice(context, user_id, body)
+        await router.notice(context, user_id, body, language=language)
 
 
 async def on_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     query = update.callback_query
     data = query.data or ""
     user_id = update.effective_user.id
-    db.upsert_user(user_id, query.from_user.username, query.from_user.full_name)
+    user.resolve_language(update)
+
+    if data.startswith("lang:set:"):
+        await user.on_language_pick(update, context)
+        return
 
     if data == "nav:back":
         await query.answer()
@@ -156,7 +169,7 @@ async def on_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
 
     if data.startswith("adm:"):
         if not is_admin(user_id):
-            await query.answer("🔒 Admin သာ လုပ်လို့ရပါတယ်။", show_alert=True)
+            await query.answer(t("admin_only_cmd"), show_alert=True)
             return
         await query.answer()
         await admin.on_admin_callback(update, context)
@@ -170,8 +183,8 @@ async def _copy_payload(update: Update, context: ContextTypes.DEFAULT_TYPE) -> N
     """`copy:<what>:<text>` — echo the value in an alert so it can be copied."""
     query = update.callback_query
     _, what, value = query.data.split(":", 2)
-    labels = {"no": "🔢 နံပါတ်", "name": "👤 အမည်", "ref": "🔢 အမှတ်အသား"}
-    await query.answer(f"{labels.get(what, '📋')}\n{value}", show_alert=True)
+    labels = {"no": "🔢", "name": "👤", "ref": "🔖"}
+    await query.answer(f"{labels.get(what, '📋')} {value}", show_alert=True)
 
 
 async def _show_tutorial(update: Update, context: ContextTypes.DEFAULT_TYPE, product_id: int) -> None:
@@ -180,34 +193,31 @@ async def _show_tutorial(update: Update, context: ContextTypes.DEFAULT_TYPE, pro
     product = db.get_product(product_id)
     url = product["tutorial_url"] if product else None
     if not url:
-        await query.answer("ဤထုတ်ကုန်အတွက် tutorial မရှိပါ။", show_alert=True)
+        await query.answer(t("err_no_tutorial"), show_alert=True)
         return
-    await query.answer("📂 Tutorial ဖွင့်ပါမယ်", show_alert=True)
+    await query.answer(t("tutorial_open"), show_alert=True)
     await context.bot.send_message(
-        update.effective_user.id, f"📂 <b>{esc(product['name'])}</b>\n🔗 {esc(url)}", parse_mode=ParseMode.HTML
+        update.effective_user.id, t("tutorial_msg", name=esc(product["name"]), url=esc(url)), parse_mode=ParseMode.HTML
     )
 
 
 async def _user_action(update: Update, context: ContextTypes.DEFAULT_TYPE, data: str) -> None:
     """`usr:deliver:<order_id>` — customer confirms they received the goods."""
     query = update.callback_query
-    await query.answer("ကျေးဇူးတင်ပါသည်! 🙏")
+    await query.answer(t("deliver_thanks"), show_alert=True)
     _, _, order_id = data.split(":")
     order = db.get_order(int(order_id))
     if order is None or order["user_id"] != update.effective_user.id:
         return
     db.set_order_status(int(order_id), "delivered")
     try:
-        await query.edit_message_text(
-            "✅ <b>လက်ခံရရှိပြီး</b>\n\nကျေးဇူးတင်ပါသည်! 🙏 နောက်ထပ်လည်မဝယ်နိုင်ပါပေမယ့် Admin ကို အကြောင်းကြားပါပါတယ်။",
-            parse_mode=ParseMode.HTML,
-        )
+        await query.edit_message_text(t("order_received"), parse_mode=ParseMode.HTML)
     except TelegramError:
         log.debug("Could not edit the delivery confirmation", exc_info=True)
 
     await notify_admins(
         context,
-        text=f"✅ ID <code>{update.effective_user.id}</code> က အော်ဒါ #{order_id} ကို လက်ခံရရှိပြီးပါပြီ။",
+        text=lambda: t("deliver_notify", user_id=update.effective_user.id, order_id=order_id),
     )
 
 
@@ -216,25 +226,26 @@ async def _user_action(update: Update, context: ContextTypes.DEFAULT_TYPE, data:
 # --------------------------------------------------------------------------- #
 async def on_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     user_id = update.effective_user.id
-    db.upsert_user(user_id, update.effective_user.username, update.effective_user.full_name)
+    user.resolve_language(update)
     name = update.message.text.split()[0].split("@")[0].lstrip("/").lower()
 
-    if name in {"start", "menu", "home", "id"}:
+    if name in {"start", "menu", "home", "id", "language", "lang"}:
         # Handled by the dedicated handlers registered in group 0.
         return
 
     handler = ADMIN_COMMANDS.get(name)
     if handler is not None:
         if not is_admin(user_id):
-            await update.message.reply_text("🔒 ဤ command ကို admin သာ သုံးနိုင်ပါတယ်။")
+            await update.message.reply_text(t("err_admin_only"))
             return
         await handler(update, context)
         return
 
-    await update.message.reply_text("⚠️ မသိမှန်တဲ့ command ဖြစ်ပါတယ်။ `/menu` နှိပါပါ။")
+    await update.message.reply_text(t("err_unknown_cmd"))
 
 
 async def cmd_id_stopping(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    user.resolve_language(update)
     await admin.cmd_id(update, context)
     raise ApplicationHandlerStop
 
@@ -242,6 +253,16 @@ async def cmd_id_stopping(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
 async def cmd_home_stopping(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     await user.cmd_start(update, context)
     raise ApplicationHandlerStop
+
+
+async def cmd_language(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """`/language` — open the picker without losing the current screen."""
+    user.resolve_language(update)
+    await router.go(update, context, "menu:lang")
+    try:
+        await update.effective_message.delete()
+    except TelegramError:
+        pass
 
 
 # --------------------------------------------------------------------------- #
@@ -273,13 +294,23 @@ async def expire_topups_job(context: ContextTypes.DEFAULT_TYPE) -> None:
     await admin._expire_topups(context)
 
 
+def _seed_default_language() -> None:
+    """Adopt the env default only while `/setlang` has never chosen one."""
+    if not lang.is_supported(settings.default_lang):
+        log.warning("DEFAULT_LANG=%r is not a known language; using %s", settings.default_lang, lang.DEFAULT_LANG)
+        return
+    if db.get_setting("default_lang") is None:
+        db.set_setting("default_lang", settings.default_lang)
+
+
 async def post_init(app: Application) -> None:
     me = await app.bot.get_me()
     log.info("Bot started as @%s (%s)", me.username, me.id)
     log.info("Admins: %s", settings.admin_ids or "— none configured —")
     if not settings.admin_ids:
-        log.warning("ADMIN_IDS မရှိကြောင်း သတိပြုပါ။ @BotFather မှာ /id နှိပါပြီး .env တွင် ထည့်သွင်းပါ။")
-
+        log.warning("ADMIN_IDS is empty — run /id in Telegram and add it to .env.")
+    lang.reset()
+    log.info("Default language: %s", lang.native_name(db.get_setting("default_lang") or lang.DEFAULT_LANG))
     health.start_health_server()
     _schedule_jobs(app)
 
@@ -331,6 +362,7 @@ def build_app() -> Application:
 
     # Commands (group 0 — these must short-circuit the generic router).
     app.add_handler(CommandHandler(["start", "menu", "home"], cmd_home_stopping))
+    app.add_handler(CommandHandler(["language", "lang"], cmd_language))
     app.add_handler(CommandHandler("id", cmd_id_stopping))
 
     # Inline buttons.
@@ -372,10 +404,11 @@ def main() -> int:
     if backup.enabled():
         try:
             asyncio.run(_restore_database())
-        except Exception as err:  # noqa: BLE001 - a bad snapshot must never stop the bot
+        except Exception as err:
             print(f"⚠️ Snapshot restore skipped ({type(err).__name__}: {err}) — starting with an empty database")
 
     db.init(settings.db_path)
+    _seed_default_language()
     log.info("Database: %s", settings.db_path)
 
     try:

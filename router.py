@@ -8,6 +8,7 @@ history survives bot restarts.
 from __future__ import annotations
 
 import logging
+from collections.abc import Callable
 
 from telegram import InlineKeyboardMarkup, Update
 from telegram.constants import ParseMode
@@ -15,11 +16,25 @@ from telegram.error import BadRequest, TelegramError
 from telegram.ext import ContextTypes
 
 import db
+import lang
 import views
 from keyboards import MAIN
 from views import Part
 
 log = logging.getLogger(__name__)
+
+#: A screen body is either ready-made text or a thunk rendered in the recipient's
+#: language at send time (an admin replying to a customer in *their* language).
+def _render(text: str | Callable[[], str], language: str | None) -> str:
+    """Build a message body, activating `language` for the duration."""
+    if callable(text):
+        previous = lang.get()
+        lang.set_lang(language or previous)
+        try:
+            return text()
+        finally:
+            lang.set_lang(previous)
+    return text
 
 
 async def _delete_msgs(context: ContextTypes.DEFAULT_TYPE, user_id: int) -> None:
@@ -27,7 +42,7 @@ async def _delete_msgs(context: ContextTypes.DEFAULT_TYPE, user_id: int) -> None
     for message_id in db.get_msgs(user_id):
         try:
             await context.bot.delete_message(chat_id=user_id, message_id=message_id)
-        except (BadRequest, Exception):  # noqa: B014 - deleting must never break navigation
+        except (BadRequest, Exception):
             pass
     db.set_msgs(user_id, [])
 
@@ -123,12 +138,14 @@ async def go_back(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
 async def notify(
     context: ContextTypes.DEFAULT_TYPE,
     user_id: int,
-    text: str,
+    text: str | Callable[[], str],
     reply_markup: InlineKeyboardMarkup | None = None,
+    *,
+    language: str | None = None,
 ) -> None:
     """Send a one-off message to the user and track it for clean-up."""
     message = await context.bot.send_message(
-        user_id, text, reply_markup=reply_markup, parse_mode=ParseMode.HTML
+        user_id, _render(text, language), reply_markup=reply_markup, parse_mode=ParseMode.HTML
     )
     db.add_msgs(user_id, [message.message_id])
 
@@ -136,8 +153,10 @@ async def notify(
 async def notice(
     context: ContextTypes.DEFAULT_TYPE,
     user_id: int,
-    text: str,
+    text: str | Callable[[], str],
     reply_markup: InlineKeyboardMarkup | None = None,
+    *,
+    language: str | None = None,
 ) -> int:
     """Send a message that must survive navigation (e.g. a pending review).
 
@@ -145,18 +164,25 @@ async def notice(
     approved, rejected or times out.
     """
     message = await context.bot.send_message(
-        user_id, text, reply_markup=reply_markup, parse_mode=ParseMode.HTML
+        user_id, _render(text, language), reply_markup=reply_markup, parse_mode=ParseMode.HTML
     )
     return message.message_id
 
 
-async def replace_notice(context: ContextTypes.DEFAULT_TYPE, user_id: int, message_id: int | None, text: str) -> None:
+async def replace_notice(
+    context: ContextTypes.DEFAULT_TYPE,
+    user_id: int,
+    message_id: int | None,
+    text: str | Callable[[], str],
+    *,
+    language: str | None = None,
+) -> None:
     """Rewrite a notice in place; falls back to a fresh message when needed."""
     if not message_id:
         return
     try:
         await context.bot.edit_message_text(
-            chat_id=user_id, message_id=message_id, text=text, parse_mode=ParseMode.HTML
+            chat_id=user_id, message_id=message_id, text=_render(text, language), parse_mode=ParseMode.HTML
         )
     except TelegramError:
         log.debug("Could not edit notice %s for %s", message_id, user_id, exc_info=True)

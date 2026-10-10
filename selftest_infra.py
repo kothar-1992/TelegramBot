@@ -18,7 +18,7 @@ from types import SimpleNamespace
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 try:
     sys.stdout.reconfigure(encoding="utf-8")
-except Exception:  # noqa: BLE001
+except Exception:
     pass
 
 import httpx

@@ -14,12 +14,13 @@ from types import SimpleNamespace
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 try:
     sys.stdout.reconfigure(encoding="utf-8")
-except Exception:  # noqa: BLE001
+except Exception:
     pass
 
 import db
 import handlers_admin as admin
 import keyboards as kb
+import lang
 import router
 import views
 from config import settings
@@ -77,11 +78,13 @@ class FakeQuery:
         self.data = data
         self.answer_text = None
         self.message = None
+        self.edited_text = None
 
     async def answer(self, text=None, show_alert=False, **kw):
         self.answer_text = text
 
     async def edit_message_text(self, text=None, reply_markup=None, parse_mode=None, **kw):
+        self.edited_text = text
         return None
 
 
@@ -110,6 +113,17 @@ async def main() -> int:
     context = FakeContext(fake)
     db.upsert_user(USER, "buyer", "Buyer")
     db.upsert_user(ADMIN, "boss", "Boss")
+    # The shop owner works in English; the customer reads Burmese.  Every message
+    # below must land in the *right* language for the person receiving it.
+    db.set_language(ADMIN, "en")
+    db.set_language(USER, "my")
+
+    print("0) the two languages are actually different")
+    check(lang.missing_keys() == set(), "every English key has a Burmese counterpart")
+    lang.set_lang("my")
+    burmese = lang.t("review_waiting", minutes=15)
+    lang.set_lang("en")
+    check(burmese != lang.t("review_waiting", minutes=15), "the same key renders in both languages")
 
     print("1) a receipt creates a pending review with buttons")
     request_id = db.create_topup(USER, 50_000, "DEP-261010-ABCDE", "receipts/x.jpg")
@@ -117,8 +131,9 @@ async def main() -> int:
     check(request["status"] == "pending", "new request starts pending")
     check(request["reference"] == "DEP-261010-ABCDE", "the payment reference is stored")
 
+    lang.set_lang("my")
     notice_id = await router.notice(
-        context, USER, "\n".join(p.text for p in views.topup_review(request_id, 0)), kb.topup_review(request_id)
+        context, USER, lambda: "\n".join(p.text for p in views.topup_review(request_id, 0)), kb.topup_review(request_id)
     )
     db.set_topup_notice(request_id, notice_id)
     screen = fake.messages[notice_id]
@@ -152,7 +167,9 @@ async def main() -> int:
     check(not fake.messages[notice_id].deleted, "the older review notice was left alone")
 
     print("4) approval credits the balance and reports the remainder")
-    await admin._topup_action(update_for(ADMIN, FakeQuery()), context, request_id, True)
+    lang.set_lang("en")  # the admin presses the button in their own language
+    verdict_query = FakeQuery()
+    await admin._topup_action(update_for(ADMIN, verdict_query), context, request_id, True)
     check(db.get_topup(request_id)["status"] == "approved", "request marked approved")
     check(db.get_balance(USER) == 50_000, "balance credited")
     check(
@@ -164,10 +181,20 @@ async def main() -> int:
         "the pending notice was rewritten in place, not duplicated",
     )
 
+    print("4b) the admin is answered in the admin's own language")
+    check(
+        "Approved" in str(verdict_query.edited_text),
+        "the review verdict reaches the admin in English",
+    )
+    check(
+        "အတည်ပြုပြီး" not in str(verdict_query.edited_text),
+        "the admin never sees the customer's Burmese copy",
+    )
+
     print("5) approving twice is refused")
     again = FakeQuery()
     await admin._topup_action(update_for(ADMIN, again), context, request_id, True)
-    check("ရင်းနှီးမှ" in str(again.answer_text), "a second approval is rejected with an explanation")
+    check("already" in str(again.answer_text).lower(), "a second approval is rejected with an explanation")
     check(db.get_balance(USER) == 50_000, "balance is not credited twice")
 
     print("6) unattended requests expire automatically")
@@ -184,6 +211,7 @@ async def main() -> int:
         "the customer is told it timed out",
     )
     check(await admin._expire_topups(context) == 0, "running the job again is a no-op")
+    lang.reset()
 
     print()
     if FAILURES:

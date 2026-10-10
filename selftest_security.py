@@ -16,11 +16,12 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 try:
     sys.stdout.reconfigure(encoding="utf-8")
-except Exception:  # noqa: BLE001
+except Exception:
     pass
 
 import bot
 import db
+import lang
 import uploads
 
 FAILURES: list[str] = []
@@ -95,8 +96,12 @@ def main() -> int:
     check(uploads.check_size(None, 10), "unknown size is allowed through (Bot API caps at 20 MB)")
 
     print("5) the reject message explains what to do instead")
-    for keyword in ("Photo", "ပုံ"):
-        check(keyword in uploads.REJECT_TEXT, f"REJECT_TEXT mentions {keyword}")
+    for language in lang.available():
+        lang.set_lang(language)
+        text = uploads.reject_text()
+        check("Photo" in text, f"reject_text names Photo ({language})")
+        check("📸" in text, f"reject_text explains how to send one ({language})")
+    lang.reset()
 
     print("6) only one download path exists")
     import inspect

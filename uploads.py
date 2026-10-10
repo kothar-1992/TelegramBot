@@ -12,6 +12,8 @@ from __future__ import annotations
 import logging
 from pathlib import Path
 
+from lang import t
+
 log = logging.getLogger(__name__)
 
 #: Magic-byte signatures for the formats Telegram actually compresses to.
@@ -23,17 +25,17 @@ IMAGE_SIGNATURES: tuple[tuple[bytes, str], ...] = (
     (b"RIFF", ".webp"),
 )
 
-REJECT_TEXT = (
-    "🚫 <b>ဖိုင်ပို့ခြင်း မခွင့်ပါ။</b>\n\n"
-    "ငွေလွှဲလက်ခံရန် စာမျက်နှာပုံကို screenshot လုပ်ပြီး "
-    "<b>Photo (ပုံ)</b> အဖြစ်သာ ပို့ပါ။\n"
-    "📎 ဖိုင်/Document အဖြစ်ပို့လျှင် လုံးဝ လက်ခံမည်မဟုတ်ပါ။\n\n"
-    "📸 ပုံဖွင့်ရန် — စာမျက်နှာရုပ်ပေါ်မှာ အလင်းရောင် 🎨 ကို နှိပ်ပြီး ပုံရိုက်ပါ။"
-)
+def reject_text() -> str:
+    """The refusal shown for documents, videos, stickers and friends."""
+    return t("upload_reject") + "\n\n" + t("upload_reject_tip")
 
-REJECT_SIZE = "⚠️ ပုံအရွယ်အစား ကြီးလွန်းပါသည်။ {limit} MB အောက် ဖြစ်သော ပုံဖြင့် ထပ်ပို့ပါ။"
 
-REJECT_FAKE = "⚠️ ဖိုင်သည် ပုံမဟုတ်ပါ။ ကျွန်တော်က ပုံမှန်များကိုသာ လက်ခံပါမယ်။"
+def reject_size(limit_mb: int) -> str:
+    return t("upload_too_big", limit=limit_mb)
+
+
+def reject_fake() -> str:
+    return t("upload_fake")
 
 
 def looks_like_image(path: Path) -> bool:

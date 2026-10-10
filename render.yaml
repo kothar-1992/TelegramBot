@@ -37,8 +37,11 @@ services:
         value: W3K Digital Pay & Services
       - key: CURRENCY
         value: MMK
-      - key: WELCOME_TEXT
-        value: "👋 Welcome to {shop}"
+      # 🌐 Language for new customers: en | my.  /setlang overrides it later.
+      - key: DEFAULT_LANG
+        value: en
+      # WELCOME_TEXT is deliberately unset: leave it empty so the greeting is
+      # rendered in each customer's own language.  Set it only to pin one string.
       - key: SUPPORT_USERNAME
         sync: false
       - key: DB_PATH

@@ -16,15 +16,17 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 try:
     sys.stdout.reconfigure(encoding="utf-8")
-except Exception:  # noqa: BLE001
+except Exception:
     pass
 
+from telegram.error import BadRequest
+
+import bot as bot_module
 import db
 import handlers_user
+import lang
 import views
-import bot as bot_module
 from config import settings
-from telegram.error import BadRequest
 
 FAILURES: list[str] = []
 
@@ -222,6 +224,8 @@ async def main() -> int:
     product_id = db.add_product("USDT TRC20", 65_000, category_id=cat, description="Fast", photo_id="PHOTO_ID_1")
     db.add_product("USDT BEP20", 64_000, category_id=cat, photo_id="PHOTO_ID_2")
     db.change_balance(user.id, 200_000)
+    db.set_language(user.id, "en")
+    db.set_language(999, "en")
 
     async def tap(data: str, actor: FakeUser | None = None) -> FakeCallbackQuery:
         who = actor or user
@@ -287,7 +291,7 @@ async def main() -> int:
                               f"adm:order:yes:{order['id']}", admin_msg)
     await bot_module.on_callback(FakeUpdate(FakeUser(999, "boss", "Boss"), callback_query=query), context)
     check(db.get_order(order["id"])["status"] == "approved", "order marked approved")
-    buyer_msgs = [m for m in fake.visible() if "အတည်ပြုပြီး" in (m.text or "")]
+    buyer_msgs = [m for m in fake.visible() if "Order approved" in (m.text or "")]
     check(bool(buyer_msgs), "buyer notified of approval")
     check(any(b == f"usr:deliver:{order['id']}" for b in buttons(buyer_msgs)), "buyer can confirm delivery")
 
@@ -304,11 +308,11 @@ async def main() -> int:
     check(len(vis) == 3, f"category screen shows 3 messages (got {len(vis)})")
     await tap("nav:back")
     vis = fake.visible()
-    check(len(vis) == 1 and "Category စာရင်း" in (vis[0].text or ""),
+    check(len(vis) == 1 and "Categories" in (vis[0].text or ""),
           f"back returns to the catalogue list (got {labels(vis)})")
     await tap("nav:back")
     vis = fake.visible()
-    check(len(vis) == 2 and "လက်ကောင်း" in (vis[-1].text or ""),
+    check(len(vis) == 2 and "balance" in (vis[-1].text or "").lower(),
           f"back at the root returns to the main menu (got {labels(vis)})")
     check(db.trail(user.id) == [], "trail reset at the main menu")
 
@@ -321,7 +325,7 @@ async def main() -> int:
     stranger = FakeUser(1_000_001, "nobody", "Nobody")
     q = await tap("adm:orders", actor=stranger)
     check(q.answer_text is not None and "Admin" in str(q.answer_text), "refused with an alert")
-    check(not any(m.chat_id == stranger.id and "အော်ဒါများ" in (m.text or "") for m in fake.visible()),
+    check(not any(m.chat_id == stranger.id and "Orders" in (m.text or "") for m in fake.visible()),
           "no admin screen leaked to the stranger")
 
     print("10) insufficient balance is refused")
@@ -365,6 +369,31 @@ async def main() -> int:
     await handlers_user.on_text(FakeUpdate(boss, message=boss_msg), ctx2)
     check(not fake2.messages[9003].deleted, "admin messages stay put as a working console")
     handlers_user.is_admin = real_is_admin
+
+    print("13) switching language re-renders the whole bot")
+    db.init(tmp)
+    lang.set_lang("en")
+    english = "\n".join(p.text for p in views.main(user.id))
+    pick = await tap("menu:lang")
+    check(any(b.startswith("lang:set:") for b in buttons(fake.visible())), "language picker is offered")
+    await tap("lang:set:my")
+    check(db.get_language(user.id) == "my", "the choice is remembered in the database")
+    burmese = "\n".join(p.text for p in views.main(user.id))
+    check(burmese != english, "the main menu is no longer the English copy")
+    check("လက်ကောင်း" in burmese, "the Burmese balance line is shown")
+    lang.set_lang("en")
+    check(views.main(user.id)[0].text.startswith("👋 Welcome"), "the bot flips back to English too")
+    check(pick.answered >= 1, "the picker query was answered")
+
+    print("14) a new customer is asked to choose first")
+    newcomer = FakeUser(1_000_002, "newbie", "Newbie")
+    start2 = FakeMessage(fake, newcomer, "/start")
+    await handlers_user.cmd_start(FakeUpdate(newcomer, message=start2), context)
+    check(db.get_language(newcomer.id) is None, "no language is forced on a first-time customer")
+    greeted = [m for m in fake.everything() if m.chat_id == newcomer.id and not m.deleted]
+    check(any(b.startswith("lang:set:") for b in buttons(greeted)), "the picker greets them")
+    await tap("lang:set:en", actor=newcomer)
+    check(db.get_language(newcomer.id) == "en", "their pick is stored")
 
     print()
     if FAILURES:

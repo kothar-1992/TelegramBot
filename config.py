@@ -50,7 +50,9 @@ class Settings:
     db_path: Path
     currency: str
     shop_name: str
+    default_lang: str
     support_username: str
+    #: Optional operator override.  Empty means "use the translated default".
     welcome_text: str
     page_size: int
     proxy: str
@@ -75,8 +77,9 @@ settings = Settings(
     db_path=BASE_DIR / os.getenv("DB_PATH", "shop.db").strip(),
     currency=os.getenv("CURRENCY", "MMK").strip() or "MMK",
     shop_name=os.getenv("SHOP_NAME", "W3K Digital Pay & Services").strip(),
+    default_lang=os.getenv("DEFAULT_LANG", "en").strip().lower() or "en",
     support_username=os.getenv("SUPPORT_USERNAME", "").lstrip("@").strip(),
-    welcome_text=os.getenv("WELCOME_TEXT", "👋 Welcome to {shop}").strip(),
+    welcome_text=os.getenv("WELCOME_TEXT", "").strip(),
     page_size=max(1, min(int(os.getenv("PAGE_SIZE", "6") or 6), 10)),
     proxy=os.getenv("PROXY", "").strip(),
     menu_button=os.getenv("MENU_BUTTON", "true").strip().lower() not in {"0", "false", "no", "off"},

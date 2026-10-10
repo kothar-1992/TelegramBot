@@ -13,10 +13,11 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 try:
     sys.stdout.reconfigure(encoding="utf-8")
-except Exception:  # noqa: BLE001
+except Exception:
     pass
 
 import db
+import lang
 import views
 
 FAILURES: list[str] = []
@@ -151,8 +152,14 @@ def main() -> int:
     print("9) empty catalogue")
     empty = Path(tempfile.mkdtemp()) / "empty.db"
     db.init(empty)
-    parts = views.build("menu:catalog", user_id)
-    check("မရှိသေး" in parts[0].text or "မရှိ" in parts[0].text, "catalogue: empty state message")
+    for code in lang.available():
+        lang.set_lang(code)
+        parts = views.build("menu:catalog", user_id)
+        check(
+            "no products yet" in parts[0].text.lower() or "မရှိသေး" in parts[0].text,
+            f"catalogue: empty state message ({code})",
+        )
+    lang.reset()
 
     print()
     if FAILURES:
