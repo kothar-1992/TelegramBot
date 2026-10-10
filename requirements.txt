@@ -1,1 +1,3 @@
-python-telegram-bot[socks]>=21.6,<23
+# job-queue  → APScheduler, used by the keep-alive ping and DB snapshots
+# socks       → proxy support for networks where Telegram is blocked
+python-telegram-bot[job-queue,socks]>=21.6,<23

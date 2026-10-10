@@ -181,6 +181,18 @@ async def post_init(app: Application) -> None:
         log.warning("ADMIN_IDS မရှိကြောင်း သတိပြုပါ။ @BotFather မှာ /id နှိပါပြီး .env တွင် ထည့်သွင်းပါ။")
 
     health.start_health_server()
+    _schedule_jobs(app)
+
+
+def _schedule_jobs(app: Application) -> None:
+    """Wire the periodic keep-alive and backup jobs, if the extra is installed."""
+    if app.job_queue is None:
+        log.warning(
+            "PTB has no JobQueue — keep-alive and DB snapshots are OFF. "
+            'Install with: pip install "python-telegram-bot[job-queue]"'
+        )
+        return
+
     if settings.self_url:
         app.job_queue.run_repeating(
             keep_alive_job, interval=timedelta(minutes=settings.keepalive_minutes), first=timedelta(seconds=45)
