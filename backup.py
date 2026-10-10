@@ -56,11 +56,17 @@ async def _remember(bot, file_id: str) -> None:
 
 
 async def _recall(bot) -> str | None:
+    """Read the pointer back out of the bot profile.
+
+    NB: `getMe` returns a bare `User` object — it carries no description field.
+    The bot's bio lives on `getChat(bot_id).description`.
+    """
     try:
-        me = await bot.get_me()
-    except Exception:  # noqa: BLE001
+        chat = await bot.get_chat((await bot.get_me()).id)
+        match = MARKER.search(getattr(chat, "description", None) or "")
+    except Exception:  # noqa: BLE001 - a missing pointer is normal on a fresh install
+        log.warning("Could not read the snapshot pointer from the bot profile", exc_info=True)
         return None
-    match = MARKER.search(me.description or "")
     return match.group(1) if match else None
 
 

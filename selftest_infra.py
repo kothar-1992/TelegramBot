@@ -43,7 +43,11 @@ def free_port() -> int:
 
 
 class FakeBot:
-    """Minimal stand-in for the parts of `telegram.Bot` the backup code touches."""
+    """Mimics the real `telegram.Bot` API surface the backup code touches.
+
+    Note the deliberate detail: `get_me()` returns a bare `User` with **no**
+    description attribute — the bio only comes back from `get_chat()`.
+    """
 
     def __init__(self) -> None:
         self.description: str | None = "🛍 my shop"
@@ -53,7 +57,10 @@ class FakeBot:
         self.description = description
 
     async def get_me(self):
-        return SimpleNamespace(description=self.description, username="shop_bot")
+        return SimpleNamespace(id=8725359712, username="shop_bot")
+
+    async def get_chat(self, chat_id: int):
+        return SimpleNamespace(id=chat_id, description=self.description)
 
     async def send_document(self, chat_id, document, caption=None, **kw):
         self.sent.append((chat_id, document, caption))
@@ -114,7 +121,18 @@ async def _run() -> int:
 
     await backup._remember(bot, "AgACAGUAAxkBAAIB1234")
     check("shopdb:AgACAGUAAxkBAAIB1234" in bot.description, "file_id is parked in the description")
-    check(await backup._recall(bot) == "AgACAGUAAxkBAAIB1234", "pointer round-trips through get_me()")
+    check(await backup._recall(bot) == "AgACAGUAAxkBAAIB1234", "pointer round-trips through getChat()")
+
+    # Regression guard: getMe() carries no description; only getChat() does.
+    me = await bot.get_me()
+    check(not hasattr(me, "description"), "getMe() returns a bare User (no description field)")
+    check(hasattr(await bot.get_chat(me.id), "description"), "getChat(bot_id) carries the bio")
+
+    class BrokenBot(FakeBot):
+        async def get_chat(self, chat_id):
+            raise RuntimeError("boom")
+
+    check(await backup._recall(BrokenBot()) is None, "a broken getChat never raises out of restore")
 
     print("5) dirty flag drives the backup job")
     db.clear_dirty()

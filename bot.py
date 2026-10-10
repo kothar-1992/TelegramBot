@@ -254,8 +254,8 @@ def main() -> int:
     if backup.enabled():
         try:
             asyncio.run(_restore_database())
-        except (NetworkError, TelegramError) as err:
-            print(f"⚠️ Snapshot restore skipped ({type(err).__name__}) — starting with an empty database")
+        except Exception as err:  # noqa: BLE001 - a bad snapshot must never stop the bot
+            print(f"⚠️ Snapshot restore skipped ({type(err).__name__}: {err}) — starting with an empty database")
 
     db.init(settings.db_path)
     log.info("Database: %s", settings.db_path)
