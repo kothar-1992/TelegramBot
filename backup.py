@@ -5,9 +5,10 @@ wipes ``shop.db`` and with it every product, balance and order.  Rather than
 pull in an external database, the admin's own Telegram chat doubles as cloud
 storage: the bot uploads a snapshot document and restores it on boot.
 
-To find the snapshot again after a restart, the newest document's ``file_id``
-is parked in the bot's own profile description (``GET /getMe`` returns it),
-which survives every redeploy and costs no extra account.
+To find the snapshots again after a restart, their ``file_id`` values are
+parked in the bot's own profile description (``GET /getChat`` returns it),
+which survives every redeploy and costs no extra account.  A short ring of
+recent ids is kept, so one failed profile update cannot strand the database.
 """
 
 from __future__ import annotations
@@ -26,8 +27,10 @@ from lang import t
 
 log = logging.getLogger(__name__)
 
-#: Where the file_id of the newest snapshot lives. Render wipes the disk, not the profile.
-MARKER = re.compile(r"shopdb:([A-Za-z0-9_\-]+)")
+#: Where the file_ids of the newest snapshots live. Render wipes the disk, not the profile.
+MARKER = re.compile(r"shopdb:(.*)")
+#: How many recent snapshots to remember. Fits comfortably in the 512-char bio.
+KEEP_POINTERS = 3
 
 
 def _snapshot_path() -> Path:
@@ -49,26 +52,28 @@ def create_snapshot(source: Path) -> Path | None:
 
 
 async def _remember(bot, file_id: str) -> None:
-    """Park the snapshot's file_id in the bot profile so a restart can find it."""
+    """Park the newest snapshot's file_id in the bot profile, keeping a few spares."""
+    recent = [file_id, *(old for old in await _recall(bot) if old != file_id)][:KEEP_POINTERS]
     try:
-        await bot.set_my_description(description=f"🛍 {settings.shop_name}\nshopdb:{file_id}")
+        await bot.set_my_description(description=f"🛍 {settings.shop_name}\nshopdb:{' '.join(recent)}")
     except Exception:
         log.warning("Could not store snapshot pointer in the bot profile", exc_info=True)
 
 
-async def _recall(bot) -> str | None:
-    """Read the pointer back out of the bot profile.
+async def _recall(bot) -> list[str]:
+    """Read the stored snapshot pointers back, newest first.
 
     NB: `getMe` returns a bare `User` object — it carries no description field.
     The bot's bio lives on `getChat(bot_id).description`.
     """
     try:
         chat = await bot.get_chat((await bot.get_me()).id)
-        match = MARKER.search(getattr(chat, "description", None) or "")
+        description = getattr(chat, "description", None) or ""
     except Exception:
         log.warning("Could not read the snapshot pointer from the bot profile", exc_info=True)
-        return None
-    return match.group(1) if match else None
+        return []
+    match = MARKER.search(description)
+    return [chunk for chunk in (match.group(1).split() if match else []) if chunk]
 
 
 async def upload(bot, admin_id: int) -> str | None:
@@ -108,23 +113,54 @@ async def upload(bot, admin_id: int) -> str | None:
     return file_id
 
 
+async def flush(bot, admin_id: int) -> bool:
+    """Mirror the database to Telegram right now.
+
+    Called after every admin edit so a deploy can never take the catalogue with
+    it, and by the periodic job as a safety net.  A failure leaves the dirty
+    flag set so the next run tries again.
+    """
+    if not enabled():
+        return False
+    if not db.is_dirty():
+        return False
+
+    file_id = await upload(bot, admin_id or settings.backup_admin_id)
+    if file_id:
+        db.clear_dirty()
+        return True
+
+    log.warning("Snapshot not saved — the catalogue stays dirty until the next attempt")
+    return False
+
+
 async def restore(bot) -> bool:
-    """Download the newest snapshot over the local database. True if one was applied."""
-    file_id = await _recall(bot)
-    if not file_id:
+    """Download the newest usable snapshot over the local database.
+
+    Each remembered id is tried in turn, so a snapshot that has expired or been
+    deleted only costs a little time.
+    """
+    pointers = await _recall(bot)
+    if not pointers:
         return False
 
     target = settings.db_path
-    try:
-        handle = await bot.get_file(file_id)
-        await asyncio.to_thread(handle.download_to_drive, custom_path=str(target))
-    except Exception:
-        log.warning("Snapshot restore failed", exc_info=True)
-        return False
-
-    log.info("Restored %s from the Telegram snapshot", target.name)
-    return True
+    for index, file_id in enumerate(pointers):
+        try:
+            handle = await bot.get_file(file_id)
+            await asyncio.to_thread(handle.download_to_drive, custom_path=str(target))
+        except Exception:
+            log.warning("Snapshot %d/%d is unusable, trying the next one", index + 1, len(pointers), exc_info=True)
+            continue
+        log.info("Restored %s from the Telegram snapshot (%d/%d)", target.name, index + 1, len(pointers))
+        return True
+    return False
 
 
 def enabled() -> bool:
-    return settings.backup_enabled and settings.backup_admin_id > 0
+    return settings.backup_enabled and chat_id() > 0
+
+
+def chat_id() -> int:
+    """Where snapshots go: the configured admin, else the first admin on file."""
+    return settings.backup_admin_id or (settings.admin_ids[0] if settings.admin_ids else 0)

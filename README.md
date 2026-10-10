@@ -230,6 +230,24 @@ PC ပိတ်လိုက်ရင် bot လည်း ပိတ်သွာ�
 DB backup ကိုယ်ပိုင် profile description ထဲမှာ file_id ကို သိမ်းတာဖြစ်လို့ deploy တိုင်းပင်
 ဆက်လက်ချိတ်ဆက်နိုင်ပါတယ် — account အသစ်၊ key အသစ် မလိုပါ။
 
+### 💾 ထုတ်ကုန် list မပျောက်အောင် — ဘယ်တော့ save လဲ
+
+`BACKUP_ENABLED=true` ဖြစ်ရင် snapshot **သုံးမျိုး** နည်းလမ်းနဲ့ သိမ်းပါတယ် —
+
+| ဘယ်တော့ | ဘာကြောင့် |
+|---|---|
+| Admin တစ်ခုခု ပြောင်းလဲပြီး **ချက်ချင်း** | ထုတ်ကုန်ထည့်ပြီးပဲ deploy ဖြစ်သွားလည်း မပျောက်တော့ဘူး |
+| Instance **ပိတ်မည်အလျှောက်** (`post_stop`) | shutdown မလုပ်ခင် နောက်ဆုံး version ကို သိမ်း |
+| တိုင်း **၁၀ မိနစ်** | order / top-up လို customer action တွေအတွက် |
+
+- Admin handler **အားလုံး** ကို `bot.saving()` နဲ့ အကျဉ်းလုပ်ထားပါတယ် — အဲဒါကြောင့် နောက်ထပ်ထည့်လိုက်တဲ့ admin command
+  တစ်ခုချင်းစီ မေ့လွတ်တော့ဘူး။ Save မလုပ်တော့ဘူးဆိုရင် database မပြောင်းသေးလို့ အလျင်မြန်မနေဘူး။
+- Save **မအောင်မြင်ရင်** dirty flag ကျန်ခဲ့လို့ နောက်တစ်ခါ ထပ်ကြိုးစားပါမယ်။
+- Snapshot pointer **၃ ခု** အထိ ထိန်းထားပါတယ် — အသစ်က ပျက်သွားရင် အရင်ဟောင်းကို ပြန်စမ်းပါမည်။
+- Boot မှာ logs မှာ `Catalogue: N products in M categories` — **၎င်းက သင့်ထုတ်ကုန်များ ပြန်လာတာလား** ဆိုတာ ချက်ချင်းသိမယ်။
+
+> ⚠️ `BACKUP_ADMIN_ID` ကို မထည့်ခဲ့လည်း ရပါတယ် — `ADMIN_IDS` ရဲ့ ပထမဆုံး id ကို အသုံးပြုပါမည်။
+
 ### ဆင်နည်း
 
 1. GitHub repo တစ်ခုတည်း → ဒီ code တင်ပါ
@@ -240,11 +258,16 @@ DB backup ကိုယ်ပိုင် profile description ထဲမှာ fil
    |---|---|
    | `BOT_TOKEN` | @BotFather က token |
    | `ADMIN_IDS` | သင့် Telegram id |
-   | `BACKUP_ADMIN_ID` | သင့် Telegram id |
    | `SELF_URL` | deploy ပြီးရင် `https://<service>.onrender.com` |
    | `PROXY` | **အလွတ်ထားပါ** — Render (US) က Telegram ကို တိုက်ရိုက်ရောက်နိုင်တာကြောင့် |
 
+   `BACKUP_ENABLED` က `render.yaml` မှာ `true` ပါပြီးသား — ထုတ်ကုန်တွေ မပျောက်စေဖို့
+   **အရေးကြီးဆုံး** ပါ။ `BOT_TOKEN` နဲ့ `ADMIN_IDS` ကိုမှ မဖြည့်ရင် bot က အလုပ်လုပ်မှာ မဟုတ်ပါ။
+
 4. Deploy → logs မှာ `Bot started as @...` ပေါ်လာပါမည်
+
+5. **Deploy ပြီးတိုင်း** logs မှာ `Catalogue: N products in M categories` ကို စစ်ပါ — အရောင်ပြောင်းနေရင်
+   snapshot restore မဖြစ်ခဲ့တာဖြစ်ပါတယ်။
 
 ### သတိပြုရန်
 - Free plan မှာ web service **၁ ခုတည်း**သာ ရှိပြီး **၄၈၅ နာရီအတွင်း** build ပြီးပါက လိုက်ထားပါ။

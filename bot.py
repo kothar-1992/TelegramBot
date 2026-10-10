@@ -6,6 +6,7 @@ Run with:  python bot.py
 from __future__ import annotations
 
 import asyncio
+import functools
 import logging
 import sys
 from datetime import timedelta
@@ -66,6 +67,30 @@ ADMIN_COMMANDS = {
     "delpay": admin.cmd_delpay,
     "setlang": admin.cmd_setlang,
 }
+
+
+def saving(handler):
+    """Run an admin handler, then mirror shop.db to Telegram.
+
+    Wrapping the dispatch rather than sprinkling calls through the handlers
+    means no future edit can add a product without also saving it, and a
+    read-only command costs nothing because the snapshot is skipped unless the
+    database is actually dirty.
+    """
+
+    @functools.wraps(handler)
+    async def wrapper(update: Update, context: ContextTypes.DEFAULT_TYPE):
+        try:
+            return await handler(update, context)
+        finally:
+            await admin.save_now(context)
+
+    return wrapper
+
+
+#: Every admin entry point is wrapped once, here.
+ADMIN_COMMANDS = {name: saving(handler) for name, handler in ADMIN_COMMANDS.items()}
+ADMIN_CALLBACK = saving(admin.on_admin_callback)
 
 
 # --------------------------------------------------------------------------- #
@@ -172,7 +197,7 @@ async def on_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
             await query.answer(t("admin_only_cmd"), show_alert=True)
             return
         await query.answer()
-        await admin.on_admin_callback(update, context)
+        await ADMIN_CALLBACK(update, context)
         return
 
     await query.answer()
@@ -279,14 +304,21 @@ async def keep_alive_job(context: ContextTypes.DEFAULT_TYPE) -> None:
 
 
 async def backup_job(context: ContextTypes.DEFAULT_TYPE) -> None:
-    """Ship shop.db to Telegram storage whenever it has changed."""
-    if not db.is_dirty():
+    """Ship shop.db to Telegram storage whenever it has changed.
+
+    This is the safety net for customer-driven writes (orders, top-ups); admin
+    edits are saved the moment they happen by `admin.save_now`.
+    """
+    if not await backup.flush(context.bot, backup.chat_id()):
         return
-    admin_id = settings.backup_admin_id or (settings.admin_ids[0] if settings.admin_ids else 0)
-    if await backup.upload(context.bot, admin_id):
-        db.clear_dirty()
-    else:
-        db.clear_dirty()  # do not retry in a tight loop
+    log.info("Shop saved to Telegram (every %d min)", settings.backup_minutes)
+
+
+async def save_on_stop(app: Application) -> None:
+    """Last save before the instance goes away — a redeploy wipes the disk."""
+    if db.is_dirty():
+        log.info("Saving the catalogue before shutdown…")
+        await backup.flush(app.bot, backup.chat_id())
 
 
 async def expire_topups_job(context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -311,6 +343,11 @@ async def post_init(app: Application) -> None:
         log.warning("ADMIN_IDS is empty — run /id in Telegram and add it to .env.")
     lang.reset()
     log.info("Default language: %s", lang.native_name(db.get_setting("default_lang") or lang.DEFAULT_LANG))
+    log.info(
+        "Catalogue: %d products in %d categories", db.count_products(active_only=False), len(db.list_categories())
+    )
+    if not backup.enabled():
+        log.warning("⚠️  Snapshots OFF — this deploy's catalogue is the only copy. Set BACKUP_ENABLED=true.")
     health.start_health_server()
     _schedule_jobs(app)
 
@@ -332,7 +369,12 @@ def _schedule_jobs(app: Application) -> None:
         app.job_queue.run_repeating(
             backup_job, interval=timedelta(minutes=settings.backup_minutes), first=timedelta(seconds=60)
         )
-        log.info("Database snapshots -> Telegram every %d min", settings.backup_minutes)
+        log.info("Database snapshots -> Telegram every %d min (and after every admin edit)", settings.backup_minutes)
+    else:
+        log.warning(
+            "Snapshots are OFF — the free disk is wiped on every deploy, so the catalogue WILL be lost. "
+            "Set BACKUP_ENABLED=true and ADMIN_IDS in the Render environment."
+        )
 
     app.job_queue.run_repeating(expire_topups_job, interval=timedelta(minutes=1), first=timedelta(seconds=30))
     log.info("Top-up review window: %d min", settings.review_minutes)
@@ -345,6 +387,7 @@ def build_app() -> Application:
         Application.builder()
         .token(settings.bot_token)
         .post_init(post_init)
+        .post_stop(save_on_stop)
         .connect_timeout(20)
         .read_timeout(30)
         .write_timeout(30)
@@ -373,8 +416,8 @@ def build_app() -> Application:
 
     # Admin wizard runs before the generic user handlers and stops the chain
     # only when it actually acted on a pending session.
-    app.add_handler(MessageHandler(filters.PHOTO, admin.on_admin_photo), group=0)
-    app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, admin.on_admin_text), group=0)
+    app.add_handler(MessageHandler(filters.PHOTO, saving(admin.on_admin_photo)), group=0)
+    app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, saving(admin.on_admin_text)), group=0)
 
     # Users / remaining commands.
     app.add_handler(MessageHandler(filters.COMMAND, on_command), group=1)
@@ -394,6 +437,11 @@ async def _restore_database() -> None:
     log.info("Looking for the latest shop.db snapshot…")
     if await backup.restore(Bot(settings.bot_token)):
         log.info("Snapshot restored ✅")
+    else:
+        log.warning(
+            "No usable snapshot found — starting empty. Anything added before the last deploy is gone. "
+            "Check that the bot profile still carries a 'shopdb:' pointer."
+        )
 
 
 def main() -> int:

@@ -58,10 +58,14 @@ services:
       - key: KEEPALIVE_MINUTES
         value: "9"
       # Mirrors shop.db into your Telegram chat and restores it on boot,
-      # because the free filesystem is wiped on every deploy.
+      # because the free filesystem is wiped on every deploy.  A snapshot is
+      # written after every admin edit and again on shutdown, so a rebuild can
+      # never take the catalogue with it.
       - key: BACKUP_ENABLED
         value: "true"
+      # Optional: snapshots go to the first entry in ADMIN_IDS when this is
+      # empty, so leaving it unset is safe.
       - key: BACKUP_ADMIN_ID
-        sync: false               # your Telegram numeric id
+        sync: false
       - key: BACKUP_MINUTES
         value: "10"

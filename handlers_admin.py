@@ -17,6 +17,7 @@ from telegram.constants import ParseMode
 from telegram.error import TelegramError
 from telegram.ext import ApplicationHandlerStop, ContextTypes
 
+import backup
 import db
 import handlers_user as user
 import lang
@@ -27,6 +28,23 @@ from lang import t
 from views import esc, money
 
 log = logging.getLogger(__name__)
+
+
+# --------------------------------------------------------------------------- #
+# durability
+# --------------------------------------------------------------------------- #
+async def save_now(context: ContextTypes.DEFAULT_TYPE) -> bool:
+    """Mirror shop.db to Telegram immediately after an admin edit.
+
+    The free host's disk is wiped on every deploy, so waiting for the periodic
+    snapshot is a gamble: an admin who adds a product and then triggers a
+    rebuild would lose it.  This makes the save part of the action itself.
+    """
+    try:
+        return await backup.flush(context.bot, backup.chat_id())
+    except TelegramError:
+        log.warning("Could not save the catalogue after an admin edit", exc_info=True)
+        return False
 
 
 # --------------------------------------------------------------------------- #
