@@ -9,6 +9,7 @@ currently visible parts for a new set.
 from __future__ import annotations
 
 import html
+import time
 from dataclasses import dataclass
 
 from telegram import InlineKeyboardMarkup, ReplyKeyboardMarkup
@@ -125,13 +126,17 @@ def product_detail(product_id: int) -> list[Part]:
     if p is None:
         return [Part(text="⚠️ ထုတ်ကုန် မတွေ့ရဘူး။", keyboard=kb.simple(kb.nav_row()))]
 
-    text = [f"<b>{esc(p['name'])}</b>"]
+    text = [f"📦 <b>{esc(p['name'])}</b>"]
     if p["cat_name"]:
         text.append(f"{p['cat_emoji']} {esc(p['cat_name'])}")
     text.append(f"💵 စျေးကြေး: <b>{money(p['price'])}</b>")
+    if p["warranty"]:
+        text.append(f"🛡 အာမခံ: {esc(p['warranty'])}")
     text.append(f"📦 ကုန်ပမာနှင့်: {'အကန့်မဲ့' if p['stock'] < 0 else p['stock']}")
     if p["description"]:
         text.append(f"\n{esc(p['description'])}")
+    if p["tutorial_url"]:
+        text.append(f"\n🔗 {esc(p['tutorial_url'])}")
 
     part = Part(text="\n".join(text), photo=p["photo_id"])
     if p["stock"] == 0:
@@ -139,6 +144,93 @@ def product_detail(product_id: int) -> list[Part]:
     else:
         part.keyboard = kb.product_detail(p)
     return [part]
+
+
+def quantity_screen(product_id: int, qty: int, user_id: int) -> list[Part]:
+    p = db.get_product(product_id)
+    if p is None:
+        return [Part(text="⚠️ ထုတ်ကုန် မတွေ့ရဘူး။", keyboard=kb.simple(kb.nav_row()))]
+
+    qty = max(1, min(qty, 99))
+    total = int(p["price"]) * qty
+    text = [
+        f"🔽 <b>{esc(p['name'])}</b>\n",
+        f"💵 စျေးကြေးတစ်ခုလျှင်: <b>{money(p['price'])}</b>",
+    ]
+    if p["warranty"]:
+        text.append(f"🛡 အာမခံ: {esc(p['warranty'])}")
+    if p["stock"] >= 0:
+        text.append(f"📦 ကုန်ပမာနှင့်: {p['stock']}")
+    text.append(f"\n🔢 ရွေးပြီးသော ပမာနှင့်: <b>{qty}</b>")
+    text.append(f"💵 စုစုပေါင်း: <b>{money(total)}</b>")
+
+    return [Part(text="\n".join(text), photo=p["photo_id"], keyboard=kb.qty_selector(p, qty, total, user_id))]
+
+
+def confirm_screen(product_id: int, qty: int, user_id: int) -> list[Part]:
+    p = db.get_product(product_id)
+    if p is None:
+        return [Part(text="⚠️ ထုတ်ကုန် မတွေ့ရဘူး။", keyboard=kb.simple(kb.nav_row()))]
+
+    total = int(p["price"]) * qty
+    balance = db.get_balance(user_id)
+    short = max(0, total - balance)
+
+    text = [
+        "📋 <b>အတည်ပြုရန် — အော်ဒါ</b>\n",
+        f"📦 {esc(p['name'])}",
+        f"🔢 ပမာနှင့် — <b>{qty}</b>",
+        f"💵 စုစုပေါင်း — <b>{money(total)}</b>",
+        f"\n💳 လက်ကောင်း — <b>{money(balance)}</b>",
+    ]
+    if short:
+        text.append(f"⚠️ လိုအပ်သော — <b>{money(short)}</b>")
+
+    return [Part(text="\n".join(text), keyboard=kb.confirm_order(p, qty, total, short))]
+
+
+def topup_methods(amount: int) -> list[Part]:
+    methods = db.list_payment_methods()
+    text = (
+        "🎯 <b>အတိအကျ သိန်းငွေဖြည့်မည်</b>\n\n"
+        f"🧾 Order အတိုင်း <b>{money(amount)}</b> ကို ပေးချေးမယ်\n"
+        "👇 ပေးချေးမည့် နည်းလမ်းကို ရွေးပါ"
+    )
+    if not methods:
+        return [Part(text=text + "\n\nℹ️ ပေးချေးမည့်နည်းလမ်း မရှိသေးပါ — admin က `/addpay` ထည့်ပါ။", keyboard=kb.simple(kb.nav_row()))]
+    return [Part(text=text, keyboard=kb.pay_methods(methods, amount))]
+
+
+def pay_details(method_id: int, amount: int, user_id: int) -> list[Part]:
+    m = db.get_payment_method(method_id)
+    if m is None:
+        return [Part(text="⚠️ ပေးချေးမည့်နည်းလမ်း မတွေ့ရဘူး။", keyboard=kb.simple(kb.nav_row()))]
+
+    code = reference_code(user_id, amount)
+    text = [
+        "🎯 <b>အတိအကျ သိန်းငွေဖြည့်မည်</b>",
+        f"🧾 Order အတိုင်း <b>{money(amount)}</b> ကို ပေးချေးမယ်\n",
+        f"{m['emoji']} <b>{esc(m['name'])} အလှန်လှဲ့နေရန်</b>\n",
+    ]
+    if m["account_number"]:
+        text.append(f"🏦 ဘဏ်/အကောင့် — <code>{esc(m['account_number'])}</code>")
+    if m["account_name"]:
+        text.append(f"👤 အမည် — <b>{esc(m['account_name'])}</b>")
+    if m["note"]:
+        text.append(f"\n📝 {esc(m['note'])}")
+    text.append("\n\n💬 ပေးချေးပြီးလျှင် receipt ပုံ ပို့ပါ")
+    text.append(f"🔢 အမှတ်အသား — <code>{code}</code>")
+
+    return [Part(text="\n".join(text), keyboard=kb.pay_details(m, amount, user_id, code))]
+
+
+def reference_code(user_id: int, amount: int) -> str:
+    """A stable per-day reference the admin can match against a payment."""
+    import hashlib
+
+    seed = f"{user_id}:{amount}:{time.strftime('%Y%m%d')}".encode()
+    digest = hashlib.sha1(seed).hexdigest().upper()
+    return f"DEP-{time.strftime('%y%m%d')}-{digest[:5]}"
 
 
 def enquire(product_id: int) -> list[Part]:
@@ -344,7 +436,15 @@ def build(data: str, user_id: int) -> list[Part]:
     if head == "ask" and len(parts) == 2:
         return enquire(int(parts[1]))
     if head == "qty" and len(parts) == 3:
-        return qty_picker(int(parts[1]), int(parts[2]), user_id)
+        return quantity_screen(int(parts[1]), int(parts[2]), user_id)
+    if head == "qadj" and len(parts) == 4:
+        return quantity_screen(int(parts[1]), max(1, int(parts[2]) + int(parts[3])), user_id)
+    if head == "confirm" and len(parts) == 3:
+        return confirm_screen(int(parts[1]), int(parts[2]), user_id)
+    if head == "topup" and len(parts) == 2:
+        return topup_methods(int(parts[1]))
+    if head == "pay" and len(parts) == 3:
+        return pay_details(int(parts[1]), int(parts[2]), user_id)
     if head == "adm":
         return _build_admin(parts, user_id)
 

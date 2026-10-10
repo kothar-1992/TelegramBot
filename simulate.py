@@ -179,6 +179,11 @@ def labels(messages: list[SentMessage]) -> list[str]:
     return out
 
 
+def body(message) -> str:
+    """Photo messages carry their text as a caption."""
+    return (message.caption if message.caption is not None else message.text) or ""
+
+
 def buttons(messages: list[SentMessage]) -> list[str]:
     out: list[str] = []
     for m in messages:
@@ -261,7 +266,7 @@ async def main() -> int:
     print("5) quantity + order")
     await tap(f"qty:{product_id}:2")
     vis = fake.visible()
-    check("130,000 MMK" in (vis[-1].text or ""), "qty screen shows price x qty")
+    check("130,000 MMK" in body(vis[-1]), "qty screen shows price x qty")
 
     before = db.get_balance(user.id)
     check(before == 200_000, f"balance before order = {before}")

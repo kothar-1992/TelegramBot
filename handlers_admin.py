@@ -23,29 +23,29 @@ log = logging.getLogger(__name__)
 #: Demo catalogue — `(category emoji, category name, [(product, price, stock, note)])`
 DEMO_DATA: tuple[tuple[str, str, tuple[tuple[str, int, int, str], ...]], ...] = (
     ("💰", "USDT / Crypto", (
-        ("USDT TRC20", 65_000, 10, "မိနစ်ပိုင်းအတွင်း ပေးပို့ပါမည်။"),
-        ("USDT BEP20", 64_000, 5, "Binance Smart Chain။"),
-        ("USDT TON", 63_000, 0, "ယခုအချိန်တွင် ကုန်မရှိပါ။"),
+        ("USDT TRC20", 65_000, 10, "မိနစ်ပိုင်းအတွင်း ပေးပို့ပါမည်။", "30 မိနစ်", "https://t.me/w3ktutorial/1"),
+        ("USDT BEP20", 64_000, 5, "Binance Smart Chain။", "30 မိနစ်", ""),
+        ("USDT TON", 63_000, 0, "ယခုအချိန်တွင် ကုန်မရှိပါ။", "", ""),
     )),
     ("🤖", "ChatGPT", (
-        ("ChatGPT GO 1 Month (Full Warranty)", 45_000, 3, "30 ရက်အာမခံ။"),
-        ("ChatGPT Plus 1 Month (10 Day Warranty)", 53_000, 2, "အကောင့်ပေးပို့။"),
-        ("ChatGPT Plus K12 Edu 2 Year", 0, 0, "ပမာနှင့်ထည့်ရန် ဆက်သွယ်ရန်။"),
+        ("ChatGPT GO 1 Month (Full Warranty)", 45_000, 3, "30 ရက်အာမခံ။", "30 ရက်", "https://t.me/w3ktutorial/2"),
+        ("ChatGPT Plus 1 Month (10 Day Warranty)", 53_000, 2, "အကောင့်ပေးပို့။", "10 ရက်", "https://t.me/w3ktutorial/3"),
+        ("ChatGPT Plus K12 Edu 2 Year", 0, 0, "ပမာနှင့်ထည့်ရန် ဆက်သွယ်ရန်။", "", ""),
     )),
     ("💼", "Microsoft", (
-        ("Microsoft 365 Personal 1 Month", 12_000, 20, "စုပစ္စည်း အားလုံးပါ။"),
-        ("Windows 11 Pro Lifetime", 35_000, 8, "တစ်ခါရှည်တည်း။"),
+        ("Microsoft 365 Personal 1 Month", 12_000, 20, "စုပစ္စည်း အားလုံးပါ။", "30 ရက်", ""),
+        ("Windows 11 Pro Lifetime", 35_000, 8, "တစ်ခါရှည်တည်း။", "အမှန်တကယ်", ""),
     )),
     ("🎨", "Adobe", (
-        ("Adobe CC All Apps 1 Month", 40_000, 4, "Photoshop, Illustrator အားလုံး။"),
-        ("Photoshop 1 Month", 15_000, 10, "အသုံးပြုသူအများကြိုက်ပါတယ်။"),
+        ("Adobe CC All Apps 1 Month", 40_000, 4, "Photoshop, Illustrator အားလုံး။", "30 ရက်", ""),
+        ("Photoshop 1 Month", 15_000, 10, "အသုံးပြုသူအများကြိုက်ပါတယ်။", "30 ရက်", ""),
     )),
     ("📹", "Zoom", (
-        ("Zoom Pro 1 Month", 18_000, 15, "Meeting 500 ကနေ့အထက်။"),
+        ("Zoom Pro 1 Month", 18_000, 15, "Meeting 500 ကနေ့အထက်။", "30 ရက်", ""),
     )),
     ("🎬", "Design Tools", (
-        ("Canva Pro 1 Year", 25_000, 6, "၁ နှစ်စာများအသုံးပြု။"),
-        ("Canva Team 1 Month", 12_000, 0, "လက်ရှိမရှိပါ။"),
+        ("Canva Pro 1 Year", 25_000, 6, "၁ နှစ်စာများအသုံးပြု။", "၁ နှစ်", ""),
+        ("Canva Team 1 Month", 12_000, 0, "လက်ရှိမရှိပါ။", "", ""),
     )),
 )
 
@@ -58,8 +58,16 @@ def _seed_demo() -> tuple[list[int], list[int]]:
     for emoji, name, products in DEMO_DATA:
         cat_id = db.add_category(name, emoji)
         cat_ids.append(cat_id)
-        for title, price, stock, note in products:
-            product_ids.append(db.add_product(title, price, category_id=cat_id, description=note, stock=stock))
+        for entry in products:
+            title, price, stock, note = entry[:4]
+            warranty = entry[4] if len(entry) > 4 else ""
+            tutorial = entry[5] if len(entry) > 5 else ""
+            product_ids.append(
+                db.add_product(
+                    title, price, category_id=cat_id, description=note, stock=stock,
+                    warranty=warranty, tutorial_url=tutorial,
+                )
+            )
     return cat_ids, product_ids
 
 
@@ -123,6 +131,54 @@ async def cmd_demo(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         "🧹 ဖျက်ချင်ရင် <code>/demo clear</code>",
         parse_mode=ParseMode.HTML,
     )
+
+
+async def cmd_paymethods(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    methods = db.list_payment_methods(active_only=False)
+    if not methods:
+        await update.message.reply_text("💳 ပေးချေးမည့်နည်းလမ်း မရှိပါ။")
+        return
+
+    lines = ["💳 <b>ပေးချေးမည့် နည်းလမ်းများ</b>\n"]
+    for m in methods:
+        flag = "🟢" if m["is_active"] else "🔴"
+        number = f" · <code>{esc(m['account_number'])}</code>" if m["account_number"] else ""
+        name = f" · {esc(m['account_name'])}" if m["account_name"] else ""
+        lines.append(f"{flag} <code>{m['id']}</code> · {m['emoji']} {esc(m['name'])}{number}{name}")
+    lines.append("\nပြင်ရန် — <code>/addpay &lt;emoji&gt; &lt;name&gt; | &lt;account&gt; | &lt;name&gt;</code>")
+    lines.append("ဖျက်ရန် — <code>/delpay &lt;id&gt;</code>")
+    await update.message.reply_text("\n".join(lines), parse_mode=ParseMode.HTML)
+
+
+async def cmd_addpay(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """`/addpay 💳 KBZPay | 09xxxxxxxx | YeHtutNaung`"""
+    raw = " ".join(update.message.text.split()[1:]).strip()
+    if not raw:
+        await update.message.reply_text("⚠️ `/addpay <emoji> <name> | <account number> | <account name>` သုံးပါ။")
+        return
+
+    fields = [f.strip() for f in raw.split("|")]
+    head = fields[0].split(maxsplit=1)
+    if len(head) == 2 and len(head[0]) <= 3:
+        emoji, name = head[0], head[1].strip()
+    else:
+        emoji, name = "💳", fields[0]
+
+    number = fields[1] if len(fields) > 1 else ""
+    holder = fields[2] if len(fields) > 2 else ""
+    method_id = db.add_payment_method(name, emoji, holder, number)
+    await update.message.reply_text(
+        f"✅ ထည့်ပြီးပါပြီ — <code>{method_id}</code> · {emoji} {esc(name)}", parse_mode=ParseMode.HTML
+    )
+
+
+async def cmd_delpay(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    parts = update.message.text.split()
+    if len(parts) < 2 or not parts[1].isdigit():
+        await update.message.reply_text("⚠️ `/delpay <id>` သုံးပါ။")
+        return
+    db.delete_payment_method(int(parts[1]))
+    await update.message.reply_text(f"🗑 ပေးချေးမည့်နည်းလမ်း <code>{parts[1]}</code> ဖျက်ပြီးပါပြီ။")
 
 
 async def cmd_id(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:

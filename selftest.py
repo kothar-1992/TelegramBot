@@ -29,11 +29,14 @@ def check(condition: bool, label: str) -> None:
 
 
 def walk(keyboard, label: str) -> None:
-    """Every callback payload must be <= 64 bytes and non-empty."""
+    """Buttons must either carry callback data or point at a valid URL."""
     if keyboard is None:
         return
     for row in keyboard.inline_keyboard:
         for button in row:
+            if button.url:
+                check(button.url.startswith("http"), f"{label}: url button '{button.text}' has a valid URL")
+                continue
             data = button.callback_data or ""
             check(bool(data), f"{label}: button '{button.text}' has callback data")
             check(len(data.encode()) <= 64, f"{label}: '{data}' is <=64 bytes ({len(data.encode())})")

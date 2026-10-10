@@ -31,6 +31,7 @@ import health
 import router
 from config import is_admin, settings
 from handlers_user import notify_admins
+from views import esc
 
 logging.basicConfig(
     level=logging.INFO,
@@ -56,6 +57,9 @@ ADMIN_COMMANDS = {
     "setname": admin.cmd_setname,
     "pending": admin.cmd_pending,
     "demo": admin.cmd_demo,
+    "paymethods": admin.cmd_paymethods,
+    "addpay": admin.cmd_addpay,
+    "delpay": admin.cmd_delpay,
 }
 
 
@@ -71,6 +75,14 @@ async def on_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
     if data == "nav:back":
         await query.answer()
         await router.go_back(update, context)
+        return
+
+    if data.startswith("copy:"):
+        await _copy_payload(update)
+        return
+
+    if data.startswith("tut:"):
+        await _show_tutorial(update, context, int(data.split(":")[1]))
         return
 
     if data.startswith("order:"):
@@ -92,6 +104,28 @@ async def on_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
 
     await query.answer()
     await router.go(update, context, data)
+
+
+async def _copy_payload(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """`copy:<what>:<text>` — echo the value in an alert so it can be copied."""
+    query = update.callback_query
+    _, what, value = query.data.split(":", 2)
+    labels = {"no": "🔢 နံပါတ်", "name": "👤 အမည်", "ref": "🔢 အမှတ်အသား"}
+    await query.answer(f"{labels.get(what, '📋')}\n{value}", show_alert=True)
+
+
+async def _show_tutorial(update: Update, context: ContextTypes.DEFAULT_TYPE, product_id: int) -> None:
+    """`tut:<id>` — send the tutorial link as a shareable message."""
+    query = update.callback_query
+    product = db.get_product(product_id)
+    url = product["tutorial_url"] if product else None
+    if not url:
+        await query.answer("ဤထုတ်ကုန်အတွက် tutorial မရှိပါ။", show_alert=True)
+        return
+    await query.answer("📂 Tutorial ဖွင့်ပါမယ်", show_alert=True)
+    await context.bot.send_message(
+        update.effective_user.id, f"📂 <b>{esc(product['name'])}</b>\n🔗 {esc(url)}", parse_mode=ParseMode.HTML
+    )
 
 
 async def _user_action(update: Update, context: ContextTypes.DEFAULT_TYPE, data: str) -> None:

@@ -59,9 +59,13 @@ def main() -> int:
 
     first = cats[1]  # ChatGPT — three items, shows the card layout
     render("Product list", f"cat:{first}:0", user_id)
-    first_product = db.list_products(first, limit=1)[0]
-    render("Product detail", f"prod:{first_product['id']}", user_id)
-    render("Quantity picker", f"qty:{first_product['id']}:2", user_id)
+    priced = db._one("SELECT id FROM products WHERE price > 0 AND stock > 0 AND warranty IS NOT NULL LIMIT 1")
+    pid = int(priced["id"]) if priced else db.list_products(first, limit=1)[0]["id"]
+    render("Product detail", f"prod:{pid}", user_id)
+    render("Quantity stepper", f"qty:{pid}:2", user_id)
+    render("Confirm order (wallet short)", f"confirm:{pid}:2", user_id)
+    render("Payment methods", "topup:53000", user_id)
+    render("Payment details", "pay:1:53000", user_id)
 
     sold_out = db._one("SELECT id FROM products WHERE stock = 0 LIMIT 1")
     if sold_out:

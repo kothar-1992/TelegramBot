@@ -8,11 +8,14 @@ state (navigation trail + pending action).
 from __future__ import annotations
 
 import json
+import logging
 import sqlite3
 import threading
 import time
 from pathlib import Path
 from typing import Any
+
+log = logging.getLogger(__name__)
 
 _conn: sqlite3.Connection | None = None
 _lock = threading.RLock()
@@ -69,7 +72,27 @@ CREATE TABLE IF NOT EXISTS sessions (
     msgs     TEXT NOT NULL DEFAULT '[]',
     pending  TEXT
 );
+
+CREATE TABLE IF NOT EXISTS payment_methods (
+    id              INTEGER PRIMARY KEY AUTOINCREMENT,
+    name            TEXT NOT NULL,
+    emoji           TEXT NOT NULL DEFAULT '💳',
+    account_name    TEXT NOT NULL DEFAULT '',
+    account_number  TEXT NOT NULL DEFAULT '',
+    note            TEXT NOT NULL DEFAULT '',
+    sort_order      INTEGER NOT NULL DEFAULT 0,
+    is_active       INTEGER NOT NULL DEFAULT 1
+);
 """
+
+#: Shipped with every install so a fresh shop can take payments right away.
+DEFAULT_PAYMENT_METHODS: tuple[tuple[str, str], ...] = (
+    ("💳", "KBZPay"),
+    ("📱", "AYAPAY"),
+    ("💳", "CBPAY ACCOUNT SPECIAL"),
+    ("💎", "BINANCE PAY"),
+    ("🪙", "USDT (BEP20)"),
+)
 
 
 # --------------------------------------------------------------------------- #
@@ -85,6 +108,49 @@ def init(path: Path | str) -> None:
         _conn.execute("PRAGMA foreign_keys=ON")
         _conn.executescript(SCHEMA)
         _conn.commit()
+    _migrate()
+    _seed_payment_methods()
+
+
+def _migrate() -> None:
+    """Add columns introduced after a database was first created."""
+    columns = {row["name"] for row in _rows("PRAGMA table_info(products)")}
+    for name, ddl in (("warranty", "TEXT"), ("tutorial_url", "TEXT"), ("delivery", "TEXT")):
+        if name not in columns:
+            _exec(f"ALTER TABLE products ADD COLUMN {name} {ddl}")
+
+
+def _seed_payment_methods() -> None:
+    if _one("SELECT COUNT(*) AS c FROM payment_methods")["c"]:
+        return
+    for order, (emoji, name) in enumerate(DEFAULT_PAYMENT_METHODS, start=1):
+        _exec(
+            "INSERT INTO payment_methods (name, emoji, sort_order) VALUES (?, ?, ?)",
+            (name, emoji, order),
+        )
+    log.info("Seeded %d default payment methods", len(DEFAULT_PAYMENT_METHODS))
+
+
+def list_payment_methods(active_only: bool = True) -> list[sqlite3.Row]:
+    where = "WHERE is_active = 1" if active_only else ""
+    return _rows(f"SELECT * FROM payment_methods {where} ORDER BY sort_order, id")
+
+
+def get_payment_method(method_id: int) -> sqlite3.Row | None:
+    return _one("SELECT * FROM payment_methods WHERE id = ?", (method_id,))
+
+
+def add_payment_method(name: str, emoji: str, account_name: str = "", account_number: str = "", note: str = "") -> int:
+    order = _one("SELECT COALESCE(MAX(sort_order), 0) + 1 AS n FROM payment_methods")["n"]
+    return _exec(
+        "INSERT INTO payment_methods (name, emoji, account_name, account_number, note, sort_order) "
+        "VALUES (?, ?, ?, ?, ?, ?)",
+        (name, emoji, account_name, account_number, note, order),
+    )
+
+
+def delete_payment_method(method_id: int) -> None:
+    _exec("DELETE FROM payment_methods WHERE id = ?", (method_id,))
 
 
 def _rows(sql: str, params: tuple = ()) -> list[sqlite3.Row]:
@@ -196,11 +262,13 @@ def add_product(
     description: str = "",
     photo_id: str | None = None,
     stock: int = -1,
+    warranty: str = "",
+    tutorial_url: str = "",
 ) -> int:
     return _exec(
-        "INSERT INTO products (category_id, name, description, price, stock, photo_id) "
-        "VALUES (?, ?, ?, ?, ?, ?)",
-        (category_id, name, description, price, stock, photo_id),
+        "INSERT INTO products (category_id, name, description, price, stock, photo_id, warranty, tutorial_url) "
+        "VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+        (category_id, name, description, price, stock, photo_id, warranty, tutorial_url),
     )
 
 

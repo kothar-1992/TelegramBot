@@ -5,6 +5,8 @@ from __future__ import annotations
 import sqlite3
 from telegram import InlineKeyboardButton, InlineKeyboardMarkup, KeyboardButton, ReplyKeyboardMarkup
 
+from config import settings
+
 MAIN = "menu:main"
 BACK = "nav:back"
 
@@ -107,22 +109,72 @@ def product_detail(product: sqlite3.Row) -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(nav_row(extra=[action]))
 
 
-def qty_selector(product: sqlite3.Row, options: tuple[int, ...] = (1, 2, 3, 5, 10)) -> InlineKeyboardMarkup:
-    rows = [_btn(f"x{n}", f"qty:{product['id']}:{n}") for n in options]
-    return InlineKeyboardMarkup(
-        grid(rows, per_row=len(options)) + nav_row(extra=[_btn("🔙 ပြန်သွားမယ်", f"prod:{product['id']}")])
-    )
+def _price(amount: int) -> str:
+    """`0` means price-on-request — never advertise a free product."""
+    return f"{int(amount):,} {settings.currency}" if int(amount) > 0 else "စျေးနှင့်မသတ်မှတ်"
 
 
-def confirm_order(product: sqlite3.Row, qty: int, total: int) -> InlineKeyboardMarkup:
-    data = f"{product['id']}:{qty}"
-    return InlineKeyboardMarkup(
+def qty_selector(product, qty: int, total: int, user_id: int) -> InlineKeyboardMarkup:
+    """The −/N/+ stepper plus Buy Now, Tutorial, Top-up and Share rows."""
+    pid = product["id"]
+    rows = [
         [
-            [_btn("✅ အတည်ပြုဝယ်မည်", f"order:yes:{data}")],
-            [_btn("💸 သိန်းငွေဖြည့်မယ်", "menu:topup")],
-            [_btn("⬅️ Back", f"prod:{product['id']}"), _btn("🏠 Main Menu", MAIN)],
-        ]
+            _btn("➖", f"qadj:{pid}:{qty}:-1"),
+            _btn(f"🔢 {qty}", f"qty:{pid}:{qty}"),
+            _btn("➕", f"qadj:{pid}:{qty}:1"),
+        ],
+        [_btn(f"🚚 ဝယ်မည် · {_price(total)}", f"confirm:{pid}:{qty}")],
+    ]
+
+    extras: list[InlineKeyboardButton] = []
+    if product["tutorial_url"]:
+        extras.append(_btn("📂 Tutorial", f"tut:{pid}"))
+    extras.append(_btn("💰 သိန်းငွေဖြည့်မည်", "menu:topup"))
+    rows.append(extras)
+    rows.append([InlineKeyboardButton("🔗 Share", url=share_link(pid, product["name"]))])
+    rows.append([_btn("⬅️ Back", f"prod:{pid}"), _btn("🏠 Main Menu", MAIN)])
+    return InlineKeyboardMarkup(rows)
+
+
+def share_link(product_id: int, name: str) -> str:
+    """Opens Telegram's share sheet so customers can forward the product."""
+    import urllib.parse
+
+    text = urllib.parse.quote(f"🛍 {name}")
+    return f"https://t.me/share/url?url={urllib.parse.quote(f'https://t.me/share?text={text}')}&text={text}"
+
+
+def confirm_order(product, qty: int, total: int, short: int) -> InlineKeyboardMarkup:
+    pid = product["id"]
+    rows: list[list[InlineKeyboardButton]] = []
+    if short > 0:
+        rows.append([_btn(f"💳 သိန်းငွေဖြည့်မည် · {_price(short)}", f"topup:{short}")])
+    rows.append([_btn("✅ အတည်ပြုဝယ်မည်", f"order:yes:{pid}:{qty}")])
+    rows.append([_btn("⬅️ Back", f"qty:{pid}:{qty}")])
+    return InlineKeyboardMarkup(rows)
+
+
+def pay_methods(methods, amount: int) -> InlineKeyboardMarkup:
+    rows = grid(
+        [_btn(f"{m['emoji']} {m['name']}", f"pay:{m['id']}:{amount}") for m in methods],
+        per_row=2,
     )
+    rows.append([_btn("🏠 Back", "menu:main"), _btn("🚫 ပယ်ဖျက်", MAIN)])
+    return InlineKeyboardMarkup(rows)
+
+
+def pay_details(method, amount: int, user_id: int, code: str) -> InlineKeyboardMarkup:
+    rows = [
+        [
+            InlineKeyboardButton("📋 နံပါတ်ကိုကူးယူ", callback_data=f"copy:no:{method['account_number']}"),
+            InlineKeyboardButton("📋 အမည်ကိုကူးယူ", callback_data=f"copy:name:{method['account_name']}"),
+        ],
+        [_btn("🔢 အမှတ်အသားကိုကူးယူ", f"copy:ref:{code}")],
+        [_btn("🚫 ပယ်ဖျက်", f"pay:{method['id']}:{amount}")],
+        [_btn("🏠 Main Menu", MAIN)],
+    ]
+    return InlineKeyboardMarkup(rows)
+
 
 
 def simple(buttons: list[list[InlineKeyboardButton]]) -> InlineKeyboardMarkup:
