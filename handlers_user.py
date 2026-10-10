@@ -11,8 +11,10 @@ from telegram.error import TelegramError
 from telegram.ext import ContextTypes
 
 import db
+import keyboards as kb
 import router
 import uploads
+import views
 from config import is_admin, settings
 from keyboards import MAIN
 from views import esc, money
@@ -137,28 +139,28 @@ async def on_photo(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         saved = str(path.relative_to(BASE_DIR))
 
     db.set_pending(user_id, None)
-    await update.message.reply_text(
-        "📨 <b>သိန်းငွေဖြည့်တင်မှု ပို့ပြီးပါပြီ</b>\n\n"
-        f"💵 ပမာနှင့်: <b>{money(amount)}</b>\n"
-        f"🆔 ID: <code>{user_id}</code>\n\n"
-        "Admin က စစ်ဆေးပြီး လက်ကောင်း ဖြည့်ပေးပါမည်။",
-        parse_mode=ParseMode.HTML,
-    )
 
-    admin_kb = InlineKeyboardMarkup(
-        [[
-            InlineKeyboardButton("✅ လက်ကောင်းဖြည့်မည်", callback_data=f"adm:topup:yes:{user_id}:{amount}"),
-            InlineKeyboardButton("❌ မဖြည့်", callback_data=f"adm:topup:no:{user_id}:{amount}"),
-        ]]
+    # A review request the admin can approve from the shop panel.
+    request_id = db.create_topup(user_id, amount, views.reference_code(user_id, amount), saved or "")
+    notice_id = await router.notice(
+        context,
+        user_id,
+        "\n".join(part.text for part in views.topup_review(request_id, db.get_balance(user_id))),
+        reply_markup=kb.topup_review(request_id),
     )
+    db.set_topup_notice(request_id, notice_id)
+
+    admin_kb = kb.admin_topup(request_id, user_id, amount)
     note = f"\n\n📎 ငွေပို့ပုံ: <code>{esc(saved)}</code>" if saved else ""
     await notify_admins(
         context,
         text=(
             "💸 <b>သိန်းငွေဖြည့်တင်မှု (receipt)</b>\n\n"
+            f"🔖 အမှတ်အသား — <code>#{request_id}</code>\n"
             f"👤 အမည်: {esc(update.effective_user.full_name)}\n"
             f"🆔 ID: <code>{user_id}</code>\n"
-            f"💵 ပမာနှင့်: <b>{money(amount)}</b>{note}"
+            f"💵 ပမာနှင့်: <b>{money(amount)}</b>{note}\n\n"
+            f"⏳ <b>{settings.review_minutes} မိနစ်</b> အတွင်း စစ်ဆေးပါ — မလုပ်ရင် အလိုအလျောက် ပယ်ဖျက်ပါမည်။"
         ),
         reply_markup=admin_kb,
     )

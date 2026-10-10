@@ -83,6 +83,18 @@ CREATE TABLE IF NOT EXISTS payment_methods (
     sort_order      INTEGER NOT NULL DEFAULT 0,
     is_active       INTEGER NOT NULL DEFAULT 1
 );
+
+CREATE TABLE IF NOT EXISTS topup_requests (
+    id                 INTEGER PRIMARY KEY AUTOINCREMENT,
+    user_id            INTEGER NOT NULL,
+    amount             INTEGER NOT NULL,
+    reference          TEXT NOT NULL DEFAULT '',
+    photo_path         TEXT NOT NULL DEFAULT '',
+    status             TEXT NOT NULL DEFAULT 'pending',
+    notice_message_id  INTEGER,
+    created_at         TEXT NOT NULL DEFAULT (datetime('now')),
+    resolved_at        TEXT
+);
 """
 
 #: Shipped with every install so a fresh shop can take payments right away.
@@ -151,6 +163,47 @@ def add_payment_method(name: str, emoji: str, account_name: str = "", account_nu
 
 def delete_payment_method(method_id: int) -> None:
     _exec("DELETE FROM payment_methods WHERE id = ?", (method_id,))
+
+
+# --------------------------------------------------------------------------- #
+# top-up requests (receipt review queue)
+# --------------------------------------------------------------------------- #
+def create_topup(user_id: int, amount: int, reference: str = "", photo_path: str = "") -> int:
+    return _exec(
+        "INSERT INTO topup_requests (user_id, amount, reference, photo_path) VALUES (?, ?, ?, ?)",
+        (user_id, amount, reference, photo_path),
+    )
+
+
+def get_topup(request_id: int) -> sqlite3.Row | None:
+    return _one("SELECT * FROM topup_requests WHERE id = ?", (request_id,))
+
+
+def set_topup_notice(request_id: int, message_id: int) -> None:
+    _exec("UPDATE topup_requests SET notice_message_id = ? WHERE id = ?", (message_id, request_id))
+
+
+def resolve_topup(request_id: int, status: str) -> None:
+    _exec(
+        "UPDATE topup_requests SET status = ?, resolved_at = datetime('now') WHERE id = ?",
+        (status, request_id),
+    )
+
+
+def pending_topups() -> list[sqlite3.Row]:
+    return _rows("SELECT * FROM topup_requests WHERE status = 'pending' ORDER BY id")
+
+
+def stale_topups(max_age_minutes: int) -> list[sqlite3.Row]:
+    """Pending requests the admin never touched within the review window."""
+    return _rows(
+        "SELECT * FROM topup_requests WHERE status = 'pending' AND created_at < datetime('now', ?)",
+        (f"-{int(max_age_minutes)} minutes",),
+    )
+
+
+def user_topups(user_id: int, limit: int = 5) -> list[sqlite3.Row]:
+    return _rows("SELECT * FROM topup_requests WHERE user_id = ? ORDER BY id DESC LIMIT ?", (user_id, limit))
 
 
 def _rows(sql: str, params: tuple = ()) -> list[sqlite3.Row]:

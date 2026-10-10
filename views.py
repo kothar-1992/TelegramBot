@@ -224,6 +224,40 @@ def pay_details(method_id: int, amount: int, user_id: int) -> list[Part]:
     return [Part(text="\n".join(text), keyboard=kb.pay_details(m, amount, user_id, code))]
 
 
+TOPUP_STATUS = {
+    "pending": "🟡 စောင့်ဆိုင်းငံ့",
+    "approved": "🟢 အတည်ပြုပြီး",
+    "rejected": "🔴 ပယ်ဖျက်ပြီး",
+    "expired": "⏰ အချိန်ကုန်သွားပြီး ပယ်ဖျက်ပြီး",
+}
+
+
+def topup_review(request_id: int, balance: int) -> list[Part]:
+    """The message a customer keeps while the admin reviews their receipt."""
+    r = db.get_topup(request_id)
+    if r is None:
+        return [Part(text="⚠️ တင်ဆက်မှု မတွေ့ရဘူး။", keyboard=kb.simple(kb.nav_row()))]
+
+    text = [
+        "🕐 <b>ငွေလွှဲ စောင့်ဆိုင်းငံ့</b>",
+        f"🔖 အမှတ်အသား — <code>#{r['id']}</code>"
+        + (f" · <code>{esc(r['reference'])}</code>" if r["reference"] else ""),
+        f"💵 ပမာနှင့် — <b>{money(r['amount'])}</b>",
+        f"💰 လက်ကောင်း — <b>{money(balance)}</b>",
+        f"📌 အခြေအနေ — {TOPUP_STATUS.get(r['status'], r['status'])}\n",
+    ]
+    if r["status"] == "pending":
+        text.append(
+            f"⏳ Admin က စစ်ဆေးနေပါသည် — **{settings.review_minutes} မိနစ်ခန့်** စောင့်ပါ။\n"
+            "အချိန်ကုန်လျှင် အလိုအလျောက် ပယ်ဖျက်ပါမည်။"
+        )
+        keyboard = kb.topup_review(r["id"])
+    else:
+        keyboard = kb.simple(kb.nav_row())
+
+    return [Part(text="\n".join(text), keyboard=keyboard)]
+
+
 def reference_code(user_id: int, amount: int) -> str:
     """A stable per-day reference the admin can match against a payment."""
     import hashlib

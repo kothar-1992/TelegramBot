@@ -11,7 +11,7 @@ import logging
 
 from telegram import InlineKeyboardMarkup, Update
 from telegram.constants import ParseMode
-from telegram.error import BadRequest
+from telegram.error import BadRequest, TelegramError
 from telegram.ext import ContextTypes
 
 import db
@@ -131,3 +131,32 @@ async def notify(
         user_id, text, reply_markup=reply_markup, parse_mode=ParseMode.HTML
     )
     db.add_msgs(user_id, [message.message_id])
+
+
+async def notice(
+    context: ContextTypes.DEFAULT_TYPE,
+    user_id: int,
+    text: str,
+    reply_markup: InlineKeyboardMarkup | None = None,
+) -> int:
+    """Send a message that must survive navigation (e.g. a pending review).
+
+    Returns the message id so it can be edited later when the request is
+    approved, rejected or times out.
+    """
+    message = await context.bot.send_message(
+        user_id, text, reply_markup=reply_markup, parse_mode=ParseMode.HTML
+    )
+    return message.message_id
+
+
+async def replace_notice(context: ContextTypes.DEFAULT_TYPE, user_id: int, message_id: int | None, text: str) -> None:
+    """Rewrite a notice in place; falls back to a fresh message when needed."""
+    if not message_id:
+        return
+    try:
+        await context.bot.edit_message_text(
+            chat_id=user_id, message_id=message_id, text=text, parse_mode=ParseMode.HTML
+        )
+    except TelegramError:
+        log.debug("Could not edit notice %s for %s", message_id, user_id, exc_info=True)

@@ -11,6 +11,7 @@ from telegram.ext import ApplicationHandlerStop, ContextTypes
 
 import db
 import router
+import views
 from config import settings
 from views import esc, money
 
@@ -536,8 +537,8 @@ async def on_admin_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) 
         await _order_action(update, context, parts[2], int(parts[3]))
         return
 
-    if head == "topup" and len(parts) >= 5:
-        await _topup_action(update, context, int(parts[3]), int(parts[4]), parts[2] == "yes")
+    if head == "topup" and len(parts) >= 3:
+        await _topup_action(update, context, int(parts[2]), parts[1] == "yes")
         return
 
     # Fall through: navigation callbacks.
@@ -707,20 +708,73 @@ async def _order_action(update: Update, context: ContextTypes.DEFAULT_TYPE, acti
     await _paint_admin_notice(query, f"🔁 <code>#{order_id}</code> → <b>{action}</b>", "order")
 
 
-async def _topup_action(update: Update, context: ContextTypes.DEFAULT_TYPE, user_id: int, amount: int, approve: bool) -> None:
+async def _topup_action(update: Update, context: ContextTypes.DEFAULT_TYPE, request_id: int, approve: bool) -> None:
     query = update.callback_query
+    request = db.get_topup(request_id)
+    if request is None:
+        await query.answer("⚠️ တင်ဆက်မှု မတွေ့ရဘူး။", show_alert=True)
+        return
+    if request["status"] != "pending":
+        await query.answer("ℹ️ ဤတင်ဆက်မှုကို ရင်းနှီးမှ ဖြေပြီးသားပါ။", show_alert=True)
+        return
+
+    user_id, amount = int(request["user_id"]), int(request["amount"])
     if approve:
         new_balance = db.change_balance(user_id, amount)
-        user_text = f"✅ <b>သိန်းငွေ ဖြည့်ပြီးပါပြီ</b>\n\n💵 ထည့်သွင်းသော: {money(amount)}\n💰 ကျန်လက်ကောင်း: <b>{money(new_balance)}</b>"
-    else:
-        user_text = (
-            "❌ <b>သိန်းငွေဖြည့်မှု မအတည်ပြုပါ</b>\n\n"
-            "Receipt ကို ပြန်စစ်ဆေးပေးပါ။ အချက်ချင်း ထပ်ပို့နိုင်ပါတယ်။"
+        db.resolve_topup(request_id, "approved")
+        text = (
+            "✅ <b>သိန်းငွေ အတည်ပြုပြီးပါပြီ</b>\n\n"
+            f"🔖 အမှတ်အသား — <code>#{request_id}</code>\n"
+            f"💵 ထည့်သွင်းသော: {money(amount)}\n"
+            f"💰 <b>လက်ကောင်း ကျန်ရှိ: {money(new_balance)}</b>\n\n"
+            "🛍 ထုတ်ကုန်များ ဝယ်ယူနိုင်ပါပြီ။"
         )
-    await _safe_notify(context, user_id, user_text)
-    await _paint_admin_notice(
-        query, f"💸 ID <code>{user_id}</code> → <b>{money(amount)}</b> ({'အတည်ပြု' if approve else 'မဖြည့်'})", "topup"
-    )
+    else:
+        db.resolve_topup(request_id, "rejected")
+        text = (
+            "❌ <b>သိန်းငွေဖြည့်မှု ပယ်ဖျက်ပြီး</b>\n\n"
+            f"🔖 အမှတ်အသား — <code>#{request_id}</code>\n"
+            "Receipt ကို ပြန်စစ်ဆေးပေးပါ။ အကယ်မှမဟုတ်ပါ။"
+        )
+
+    await _safe_notify(context, user_id, text)
+    if approve:
+        await router.replace_notice(
+            context,
+            user_id,
+            request["notice_message_id"],
+            "\n".join(p.text for p in views.topup_review(request_id, db.get_balance(user_id))),
+        )
+    verdict = "အတည်ပြုပြီး" if approve else "ပယ်ဖျက်ပြီး"
+    await _paint_admin_notice(query, f"💸 <code>#{request_id}</code> → <b>{verdict}</b>", "topup")
+
+
+async def _expire_topups(context: ContextTypes.DEFAULT_TYPE) -> int:
+    """Reject review requests the admin never answered in time."""
+    expired = 0
+    for request in db.stale_topups(settings.review_minutes):
+        request_id = int(request["id"])
+        db.resolve_topup(request_id, "expired")
+        user_id = int(request["user_id"])
+        await router.replace_notice(
+            context,
+            user_id,
+            request["notice_message_id"],
+            "\n".join(p.text for p in views.topup_review(request_id, db.get_balance(user_id))),
+        )
+        await _safe_notify(
+            context,
+            user_id,
+            "⏰ <b>သိန်းငွေဖြည့်မှု အချိန်ကုန်သွားပါပြီ</b>\n\n"
+            f"{settings.review_minutes} မိနစ်အတွင်း Admin က မစစ်ဆေးနိုင်ခဲ့သဖြင့် ပယ်ဖျက်ပြီးပါပြီ။\n"
+            "💰 လက်ကောင်း မထည့်ထားပါ။ ထပ်ပို့လိုပါက ပြန်လုပ်ဆင်းပါ။",
+        )
+        expired += 1
+    if expired:
+        log.info("Auto-rejected %d stale top-up request(s)", expired)
+    return expired
+
+
 
 
 async def _paint_admin_notice(query, text: str, tag: str) -> None:

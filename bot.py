@@ -30,6 +30,7 @@ import handlers_user as user
 import health
 import router
 import uploads
+import views
 from config import is_admin, settings
 from handlers_user import notify_admins
 from views import esc
@@ -87,6 +88,40 @@ async def on_rejected_file(update: Update, context: ContextTypes.DEFAULT_TYPE) -
     raise ApplicationHandlerStop
 
 
+async def _user_topup_action(update: Update, context: ContextTypes.DEFAULT_TYPE, data: str) -> None:
+    """`tstatus:<id>` / `tcancel:<id>` — the customer's side of the review."""
+    query = update.callback_query
+    kind, _, raw_id = data.partition(":")
+    request = db.get_topup(int(raw_id))
+    if request is None or request["user_id"] != update.effective_user.id:
+        await query.answer("⚠️ တင်ဆက်မှု မတွေ့ရဘူး။", show_alert=True)
+        return
+
+    request_id = int(request["id"])
+    if kind == "tcancel" and request["status"] == "pending":
+        db.resolve_topup(request_id, "rejected")
+        await query.answer("🚫 ပယ်ဖျက်ပြီးပါပြီ", show_alert=True)
+    elif request["status"] == "pending":
+        await query.answer(f"🟡 စောင့်ဆိုင်းငံ့ — မိနစ် {settings.review_minutes} ခန့် ကျန်ပါသေးသည်", show_alert=True)
+        return
+    else:
+        await query.answer("ℹ️ ဤတင်ဆက်မှုကို ရင်းနှီးမှ ဖြေပြီးသားပါ။", show_alert=True)
+        return
+
+    await _replace_review_notice(context, request_id, int(request["user_id"]))
+
+
+async def _replace_review_notice(context: ContextTypes.DEFAULT_TYPE, request_id: int, user_id: int) -> None:
+    request = db.get_topup(request_id)
+    if not request:
+        return
+    body = "\n".join(p.text for p in views.topup_review(request_id, db.get_balance(user_id)))
+    if request["notice_message_id"]:
+        await router.replace_notice(context, user_id, request["notice_message_id"], body)
+    else:
+        await router.notice(context, user_id, body)
+
+
 async def on_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     query = update.callback_query
     data = query.data or ""
@@ -96,6 +131,10 @@ async def on_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
     if data == "nav:back":
         await query.answer()
         await router.go_back(update, context)
+        return
+
+    if data.startswith(("tstatus:", "tcancel:")):
+        await _user_topup_action(update, context, data)
         return
 
     if data.startswith("copy:"):
@@ -229,6 +268,11 @@ async def backup_job(context: ContextTypes.DEFAULT_TYPE) -> None:
         db.clear_dirty()  # do not retry in a tight loop
 
 
+async def expire_topups_job(context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Every minute: reject receipts nobody reviewed within the window."""
+    await admin._expire_topups(context)
+
+
 async def post_init(app: Application) -> None:
     me = await app.bot.get_me()
     log.info("Bot started as @%s (%s)", me.username, me.id)
@@ -258,6 +302,9 @@ def _schedule_jobs(app: Application) -> None:
             backup_job, interval=timedelta(minutes=settings.backup_minutes), first=timedelta(seconds=60)
         )
         log.info("Database snapshots -> Telegram every %d min", settings.backup_minutes)
+
+    app.job_queue.run_repeating(expire_topups_job, interval=timedelta(minutes=1), first=timedelta(seconds=30))
+    log.info("Top-up review window: %d min", settings.review_minutes)
 
 
 # --------------------------------------------------------------------------- #

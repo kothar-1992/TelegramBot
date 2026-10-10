@@ -177,6 +177,28 @@ def pay_details(method, amount: int, user_id: int, code: str) -> InlineKeyboardM
 
 
 
+def topup_review(request_id: int) -> InlineKeyboardMarkup:
+    """Buttons on the pending-review notice that survives navigation."""
+    return InlineKeyboardMarkup(
+        [
+            [_btn("🔄 အခြေအနေ စစ်မည်", f"tstatus:{request_id}")],
+            [_btn("🚫 ပယ်ဖျက်မည်", f"tcancel:{request_id}")],
+            [_btn("🏠 Main Menu", MAIN)],
+        ]
+    )
+
+
+def admin_topup(request_id: int, user_id: int, amount: int) -> InlineKeyboardMarkup:
+    return InlineKeyboardMarkup(
+        [
+            [
+                _btn("✅ အတည်ပြု", f"adm:topup:yes:{request_id}"),
+                _btn("❌ ပယ်ဖျက်", f"adm:topup:no:{request_id}"),
+            ]
+        ]
+    )
+
+
 def simple(buttons: list[list[InlineKeyboardButton]]) -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(buttons)
 
