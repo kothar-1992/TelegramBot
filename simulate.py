@@ -19,12 +19,13 @@ try:
 except Exception:
     pass
 
-from telegram.error import BadRequest
+from telegram.error import BadRequest, TimedOut
 
 import bot as bot_module
 import db
 import handlers_user
 import lang
+import router
 import views
 from config import settings
 
@@ -65,8 +66,19 @@ class FakeBot:
         self.deleted: list[int] = []
         self.ignored: set[int] = set()  # persistent chrome (reply-keyboard helper)
         self.owner = owner
+        #: Number of upcoming sends that should fail, to emulate a bad connection.
+        self.fail_sends = 0
+        #: Ordered log of "send"/"delete" so the test can prove the swap order.
+        self.events: list[str] = []
+
+    def _record_send(self) -> None:
+        self.events.append("send")
+        if self.fail_sends > 0:
+            self.fail_sends -= 1
+            raise TimedOut("simulated slow network")
 
     async def send_message(self, chat_id, text, reply_markup=None, parse_mode=None, **kw) -> SentMessage:
+        self._record_send()
         self._next += 1
         msg = SentMessage(chat_id, self._next, text=text)
         msg.reply_markup = reply_markup
@@ -74,6 +86,7 @@ class FakeBot:
         return msg
 
     async def send_photo(self, chat_id, photo, caption=None, reply_markup=None, parse_mode=None, **kw) -> SentMessage:
+        self._record_send()
         self._next += 1
         msg = SentMessage(chat_id, self._next, photo=photo)
         msg.caption = caption
@@ -82,6 +95,7 @@ class FakeBot:
         return msg
 
     async def delete_message(self, chat_id=None, message_id=None, **kw) -> bool:
+        self.events.append("delete")
         self.deleted.append(message_id)
         if message_id in self.messages:
             self.messages[message_id].deleted = True
@@ -408,6 +422,45 @@ async def main() -> int:
     check(any(b.startswith("lang:set:") for b in buttons(greeted)), "the picker greets them")
     await tap("lang:set:en", actor=newcomer)
     check(db.get_language(newcomer.id) == "en", "their pick is stored")
+
+    print("15) a slow or failed send never blanks the chat")
+    net = FakeBot(owner=user.id)
+    ctx3 = FakeContext(net)
+    db.set_setting("banner_photo", "BANNER_FILE_ID")  # main menu = 2 messages
+
+    await router.go(FakeUpdate(user), ctx3, "menu:main")
+    check(len(net.visible()) == 2, f"the banner screen arrived as two messages (got {len(net.visible())})")
+
+    # A multi-message swap cannot be edited in place, so it goes through the
+    # send-then-delete path — the ordering matters exactly when it is slow.
+    net.events.clear()
+    await router.go(FakeUpdate(user), ctx3, "adm:prod:list")
+    check(net.events[0] == "send", "the new screen is sent before anything is deleted")
+    check(net.events[-1] == "delete", "the old screen is cleared only after the new one lands")
+    check(
+        net.events.index("send", 0) < net.events.index("delete"),
+        "sends and deletes never interleave",
+    )
+
+    # Now break the network: the replacement never arrives.
+    good_ids = {m.message_id for m in net.visible()}
+    net.events.clear()
+    net.fail_sends = 99
+    await router.go(FakeUpdate(user), ctx3, "adm:cat:list")
+    check(
+        all(net.messages[i].deleted is False for i in good_ids if i in net.messages),
+        "the screen on screen survived a failed navigation",
+    )
+    check("delete" not in net.events, "nothing was deleted when the send failed")
+    check(set(db.get_msgs(user.id)) == good_ids, "the router still remembers the visible screen")
+    net.fail_sends = 0
+
+    print("16) a screen that finally loads clears the old one exactly once")
+    net.events.clear()
+    await router.go(FakeUpdate(user), ctx3, "adm:stats")
+    fresh = {m.message_id for m in net.visible()}
+    check(good_ids.isdisjoint(fresh), "no message from the failed attempt was left behind")
+    check(net.events.count("delete") == len(good_ids), "each stale message was deleted exactly once")
 
     print()
     if FAILURES:
