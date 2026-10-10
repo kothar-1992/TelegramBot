@@ -56,10 +56,18 @@ EN: dict[str, str] = {
     "lang_admin_set": "✅ Default language set to <b>{name}</b>.",
     "lang_current": "🌐 Current language: <b>{name}</b>",
     # catalogue
-    "catalog_header": "🗂 <b>Categories</b> — {categories} · 🛍 {products}\n\n"
-    "Pick a category to browse.",
+    "catalog_header": "🗂 <b>Categories</b>\n\n"
+    "👇 Tap a category — each button shows how many products it holds.",
     "catalog_empty": "🛍 <b>Catalogue</b>\n\nThere are no products yet.",
-    "cat_footer": "{emoji} <b>{name}</b> — {count} items · page {page}/{pages}",
+    "cat_header": "{emoji} <b>{name}</b>\n"
+    "{count} available · page {page}/{pages}\n\n"
+    "👇 Tap a product to see the details.",
+    "cat_empty": "{emoji} <b>{name}</b>\n\nThere are no products here yet.",
+    "n_items": "{count} items",
+    "n_items_one": "1 item",
+    "price_tbd_short": "💬 on request",
+    "sold_out_short": "sold out",
+    "back_to_cat": "⬅️ {name}",
     # product
     "product_stock": "📦 Stock: {stock}",
     "product_stock_inf": "📦 Stock: unlimited",
@@ -334,10 +342,18 @@ MY: dict[str, str] = {
     "lang_changed": "✅ ဘာသာစကား <b>{name}</b> သို့ ပြောင်းပြီးပါပြီ။",
     "lang_admin_set": "✅ Default ဘာသာစကား <b>{name}</b> သို့ သတ်မှတ်ပြီးပါပြီ။",
     "lang_current": "🌐 လက်ရှိဘာသာစကား: <b>{name}</b>",
-    "catalog_header": "🗂 <b>Category စာရင်း</b> — {categories} ခု · 🛍 {products} ခု\n\n"
-    "အောက်က အမျိုးအစားကို ရွေးပါ။",
+    "catalog_header": "🗂 <b>Category စာရင်း</b>\n\n"
+    "👇 အမျိုးအစားကို ရွေးပါ — ခလုပ်မှာ ဘယ်လောက်လဲ ဆို ပါသည်။",
     "catalog_empty": "🛍 <b>ထုတ်ကုန်စာရင်း</b>\n\nယခုအချိန်တွင် ထုတ်ကုန်များ မရှိသေးပါ။",
-    "cat_footer": "{emoji} <b>{name}</b> — စာရင်း {count} ခု · စာမျက်နှာ {page}/{pages}",
+    "cat_header": "{emoji} <b>{name}</b>\n"
+    "ရရှိနိုင်သော {count} ခု · စာမျက်နှာ {page}/{pages}\n\n"
+    "👇 ထုတ်ကုန်ကို နှိပ်ပြီး အသေးစိတ်ကြည့်ပါ။",
+    "cat_empty": "{emoji} <b>{name}</b>\n\nဒီမှာ ထုတ်ကုန် မရှိသေးပါ။",
+    "n_items": "{count} ခု",
+    "n_items_one": "၁ ခု",
+    "price_tbd_short": "💬 စျေးမသတ်မှတ်",
+    "sold_out_short": "ကုန်မရှိ",
+    "back_to_cat": "⬅️ {name}",
     "product_stock": "📦 ကုန်ပမာနှင့်: {stock}",
     "product_stock_inf": "📦 ကုန်ပမာနှင့်: အကန့်မဲ့",
     "product_warranty": "🛡 အာမခံ: {warranty}",

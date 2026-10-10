@@ -156,9 +156,14 @@ async def main() -> int:
     check(db.get_topup(request_id)["status"] == "pending", "navigating never resolves the request")
 
     print("3) only the *current screen* is cleared when moving on")
+    db.add_product("ChatGPT GO", 45_000, category_id=cat)
     await router.go(me, context, f"cat:{cat}:0")
     chatgpt_ids = [m.message_id for m in fake.visible(USER) if m.message_id != notice_id]
-    check(len(chatgpt_ids) >= 2, "the ChatGPT screen rendered its cards")
+    check(len(chatgpt_ids) == 1, "the ChatGPT list rendered as one message")
+    check(
+        f"prod:{db.list_products(cat, limit=1)[0]['id']}" in buttons(fake.messages[chatgpt_ids[0]].reply_markup),
+        "the list carries a button per product",
+    )
     await router.go(me, context, f"cat:{gemini}:0")
     check(
         all(fake.messages[i].deleted for i in chatgpt_ids),

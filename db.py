@@ -345,17 +345,25 @@ def add_product(
     )
 
 
-def list_products(category_id: int | None, offset: int = 0, limit: int = 6, active_only: bool = True) -> list[sqlite3.Row]:
+def list_products(
+    category_id: int | None,
+    offset: int = 0,
+    limit: int = 6,
+    active_only: bool = True,
+    buyable_first: bool = False,
+) -> list[sqlite3.Row]:
+    """Products newest-first; `buyable_first` sinks sold-out items to the end."""
     where = "WHERE is_active = 1" if active_only else ""
     params: list[Any] = []
     if category_id is not None:
         where = f"{where} AND category_id = ?".strip()
         params.append(category_id)
+    order = "ORDER BY (p.stock = 0), p.id DESC" if buyable_first else "ORDER BY p.id DESC"
     params.extend([limit, offset])
     return _rows(
         f"SELECT p.*, c.name AS cat_name, c.emoji AS cat_emoji FROM products p "
         f"LEFT JOIN categories c ON c.id = p.category_id {where} "
-        f"ORDER BY p.id DESC LIMIT ? OFFSET ?",
+        f"{order} LIMIT ? OFFSET ?",
         tuple(params),
     )
 

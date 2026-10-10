@@ -78,7 +78,11 @@ def main_menu(username: str = "", is_admin: bool = False) -> InlineKeyboardMarku
 
 
 def categories(cats: list[sqlite3.Row], page: int = 0, pages: int = 1) -> InlineKeyboardMarkup:
-    rows = grid([_btn(f"{c['emoji']} {c['name']}  ({c['item_count']})", f"cat:{c['id']}:0") for c in cats], per_row=2)
+    """Two-line category buttons — the emoji carries the colour, the count the size."""
+    rows = grid(
+        [_btn(f"{c['emoji']} {c['name']}\n" + _items(int(c["item_count"])), f"cat:{c['id']}:0") for c in cats],
+        per_row=2,
+    )
 
     clamped = max(0, min(page, pages - 1))
     rows.append(
@@ -92,11 +96,42 @@ def categories(cats: list[sqlite3.Row], page: int = 0, pages: int = 1) -> Inline
     return InlineKeyboardMarkup(rows)
 
 
-def product_card(product: sqlite3.Row) -> InlineKeyboardMarkup:
-    """Keyboard attached to a single product photo card."""
-    if int(product["price"]) <= 0:
-        return InlineKeyboardMarkup([[_btn(t("ask_price"), f"ask:{product['id']}")]])
-    return InlineKeyboardMarkup([[_btn(t("buy"), f"prod:{product['id']}")]])
+def _items(count: int) -> str:
+    return t("n_items_one") if count == 1 else t("n_items", count=count)
+
+
+#: Telegram truncates very long button labels, so keep the whole row this wide.
+BUTTON_BUDGET = 46
+
+
+def _clip(name: str, suffix: str) -> str:
+    """Trim the product name so `name + suffix` still fits on one button."""
+    room = max(12, BUTTON_BUDGET - len(suffix) - 2)
+    return name if len(name) <= room else name[: room - 1].rstrip() + "…"
+
+
+def product_row(product: sqlite3.Row, emoji: str) -> InlineKeyboardButton:
+    """`🎬 CapCut Pro 1 Month · 10,000 MMK` — one button per product.
+
+    Telegram buttons are plain text: no HTML, no colours.  The only colour
+    available is the emoji glyph itself, so a sold-out item swaps the category
+    emoji for a red marker and drops the price, since it cannot be bought.
+    """
+    name = product["name"].strip()
+    if product["stock"] == 0:
+        return _btn(f"🔴 {_clip(name, t('sold_out_short'))} · {t('sold_out_short')}", f"prod:{product['id']}")
+    price = _price(product["price"]) if int(product["price"]) > 0 else t("price_tbd_short")
+    return _btn(f"{emoji or '🛍'} {_clip(name, price)} · {price}", f"prod:{product['id']}")
+
+
+def product_list(
+    products: list[sqlite3.Row], cat_id: int, page: int, pages: int, emoji: str = "🛍"
+) -> InlineKeyboardMarkup:
+    """The whole category on one message: a button per product, then the pager."""
+    rows: list[list[InlineKeyboardButton]] = [[product_row(p, emoji)] for p in products]
+    rows += product_list_controls(cat_id, page, pages)
+    rows += nav_row()
+    return InlineKeyboardMarkup(rows)
 
 
 def product_list_controls(cat_id: int, page: int, pages: int) -> list[list[InlineKeyboardButton]]:
@@ -109,13 +144,15 @@ def product_list_controls(cat_id: int, page: int, pages: int) -> list[list[Inlin
     return grid(row, per_row=3)
 
 
-def product_detail(product: sqlite3.Row) -> InlineKeyboardMarkup:
+def product_detail(
+    product: sqlite3.Row, back: list[InlineKeyboardButton] | None = None
+) -> InlineKeyboardMarkup:
     action = (
         _btn(t("buy_or"), f"qty:{product['id']}:1")
         if int(product["price"]) > 0
         else _btn(t("ask_price"), f"ask:{product['id']}")
     )
-    return InlineKeyboardMarkup(nav_row(extra=[action]))
+    return InlineKeyboardMarkup(nav_row(extra=[action] + back if back else [action]))
 
 
 def _price(amount: int) -> str:

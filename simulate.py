@@ -197,6 +197,16 @@ def buttons(messages: list[SentMessage]) -> list[str]:
     return out
 
 
+def captions(messages: list[SentMessage]) -> list[str]:
+    """The visible text on every button — Telegram renders these verbatim."""
+    return [
+        b.text
+        for m in messages
+        for row in (m.reply_markup.inline_keyboard if getattr(m.reply_markup, "inline_keyboard", None) else [])
+        for b in row
+    ]
+
+
 def trail_len(user_id: int) -> int:
     row = db._one("SELECT trail FROM sessions WHERE user_id = ?", (user_id,))
     return len(__import__("json").loads(row["trail"]))
@@ -222,7 +232,7 @@ async def main() -> int:
 
     cat = db.add_category("USDT", "💰")
     product_id = db.add_product("USDT TRC20", 65_000, category_id=cat, description="Fast", photo_id="PHOTO_ID_1")
-    db.add_product("USDT BEP20", 64_000, category_id=cat, photo_id="PHOTO_ID_2")
+    second_id = db.add_product("USDT BEP20", 64_000, category_id=cat, photo_id="PHOTO_ID_2")
     db.change_balance(user.id, 200_000)
     db.set_language(user.id, "en")
     db.set_language(999, "en")
@@ -256,10 +266,14 @@ async def main() -> int:
     print("3) category listing")
     await tap(f"cat:{cat}:0")
     vis = fake.visible()
-    check(len(vis) == 3, f"2 product cards + footer (got {len(vis)})")
-    check(vis[0].photo == "PHOTO_ID_2", "product card rendered as a photo")
-    check(f"prod:{product_id}" in buttons(vis), "card links to its product")
-    check("nav:back" in buttons(vis), "Back button on the footer")
+    check(len(vis) == 1, f"one compact list message (got {len(vis)})")
+    check(f"prod:{product_id}" in buttons(vis), "the list links to each product")
+    check(f"prod:{second_id}" in buttons(vis), "every product on the page is listed")
+    check(
+        any(c.startswith("\U0001f4b0") and c.endswith("65,000 MMK") for c in captions(vis)),
+        "each button carries the category emoji and the price",
+    )
+    check("nav:back" in buttons(vis), "Back button on the list")
 
     print("4) product detail")
     await tap(f"prod:{product_id}")
@@ -305,7 +319,7 @@ async def main() -> int:
     await tap("menu:catalog")
     await tap(f"cat:{cat}:0")
     vis = fake.visible()
-    check(len(vis) == 3, f"category screen shows 3 messages (got {len(vis)})")
+    check(len(vis) == 1, f"category screen is one message (got {len(vis)})")
     await tap("nav:back")
     vis = fake.visible()
     check(len(vis) == 1 and "Categories" in (vis[0].text or ""),

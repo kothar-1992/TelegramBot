@@ -95,11 +95,11 @@ def catalog(user_id: int, page: int = 0) -> list[Part]:
     pages = max(1, -(-len(all_cats) // CATEGORIES_PER_PAGE))
     page = max(0, min(page, pages - 1))
     cats = all_cats[page * CATEGORIES_PER_PAGE : (page + 1) * CATEGORIES_PER_PAGE]
-    text = t("catalog_header", categories=len(all_cats), products=db.count_products())
-    return [Part(text=text, keyboard=kb.categories(cats, page, pages))]
+    return [Part(text=t("catalog_header"), keyboard=kb.categories(cats, page, pages))]
 
 
 def category_products(cat_id: int, page: int) -> list[Part]:
+    """One message for the whole category: a colourful button per product."""
     cat = db.get_category(cat_id)
     if cat is None:
         return [Part(text=t("not_found"), keyboard=kb.simple(kb.nav_row()))]
@@ -108,27 +108,25 @@ def category_products(cat_id: int, page: int) -> list[Part]:
     total = db.count_products(cat_id)
     pages = max(1, -(-total // per_page))
     page = max(0, min(page, pages - 1))
-    rows = db.list_products(cat_id, offset=page * per_page, limit=per_page)
+    rows = db.list_products(cat_id, offset=page * per_page, limit=per_page, buyable_first=True)
 
-    parts: list[Part] = []
-    for p in rows:
-        cat_tag = f"{p['cat_emoji']} {esc(p['cat_name'])}" if p["cat_name"] else ""
-        caption = (
-            f"<b>{esc(p['name'])}</b>\n"
-            f"{cat_tag}\n"
-            f"💵 {money(p['price'])}\n"
-            f"{_stock(p)}"
-        )
-        if p["warranty"]:
-            caption += f"\n{t('product_warranty', warranty=esc(p['warranty']))}"
-        if p["description"]:
-            caption += f"\n\n{esc(p['description'])}"
-        parts.append(Part(text=caption, photo=p["photo_id"], keyboard=kb.product_card(p)))
+    if not rows:
+        return [
+            Part(
+                text=t("cat_empty", emoji=cat["emoji"], name=esc(cat["name"])),
+                keyboard=kb.simple(kb.nav_row()),
+            )
+        ]
 
-    controls = kb.product_list_controls(cat_id, page, pages)
-    footer = t("cat_footer", emoji=cat["emoji"], name=esc(cat["name"]), count=total, page=page + 1, pages=pages)
-    parts.append(Part(text=footer, keyboard=InlineKeyboardMarkup(controls + kb.nav_row())))
-    return parts
+    text = t(
+        "cat_header",
+        emoji=cat["emoji"],
+        name=esc(cat["name"]),
+        count=total,
+        page=page + 1,
+        pages=pages,
+    )
+    return [Part(text=text, keyboard=kb.product_list(rows, cat_id, page, pages, cat["emoji"]))]
 
 
 def product_detail(product_id: int) -> list[Part]:
@@ -148,8 +146,14 @@ def product_detail(product_id: int) -> list[Part]:
     if p["tutorial_url"]:
         text.append(f"\n{t('product_tutorial', url=esc(p['tutorial_url']))}")
 
+    # Name the category on the Back button so leaving a list never feels blind.
+    back = (
+        [kb._btn(t("back_to_cat", name=esc(p["cat_name"])), f"cat:{p['category_id']}:0")]
+        if p["category_id"] is not None and p["cat_name"]
+        else None
+    )
     part = Part(text="\n".join(text), photo=p["photo_id"])
-    part.keyboard = kb.simple(kb.nav_row()) if p["stock"] == 0 else kb.product_detail(p)
+    part.keyboard = kb.simple(kb.nav_row(extra=back)) if p["stock"] == 0 else kb.product_detail(p, back)
     return [part]
 
 
