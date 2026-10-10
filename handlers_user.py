@@ -12,6 +12,7 @@ from telegram.ext import ContextTypes
 
 import db
 import router
+import uploads
 from config import is_admin, settings
 from keyboards import MAIN
 from views import esc, money
@@ -105,17 +106,35 @@ async def on_photo(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         await update.message.reply_text("📸 ရုပ်ပုံပို့ရန် အရင် “💸 သိန်းငွေဖြည့်မည်” ကို နှိပါပါ။")
         return
 
+    photo = update.message.photo[-1]
+    if not uploads.check_size(getattr(photo, "file_size", None), settings.max_upload_mb):
+        await update.message.reply_text(
+            uploads.REJECT_SIZE.format(limit=settings.max_upload_mb), parse_mode=ParseMode.HTML
+        )
+        return
+
     amount = int(pending["amount"])
     await wipe(update)  # the receipt is saved to disk + backed up already
     RECEIPTS_DIR.mkdir(exist_ok=True)
     path = RECEIPTS_DIR / f"topup-{user_id}-{db.stamp()}.jpg"
     saved: str | None = None
     try:
-        telegram_file = await update.message.photo[-1].get_file()
+        telegram_file = await photo.get_file()
         await telegram_file.download_to_drive(custom_path=str(path))
-        saved = str(path.relative_to(BASE_DIR))
     except TelegramError:
         log.warning("receipt download failed for user %s", user_id, exc_info=True)
+        path.unlink(missing_ok=True)
+
+    if path.exists():
+        # Telegram says "photo", but verify the bytes before anything is stored.
+        if not uploads.looks_like_image(path):
+            path.unlink(missing_ok=True)
+            await update.message.reply_text(uploads.REJECT_FAKE, parse_mode=ParseMode.HTML)
+            return
+        correct = path.with_suffix(uploads.extension_for(path))
+        correct.replace(path)
+        path = correct
+        saved = str(path.relative_to(BASE_DIR))
 
     db.set_pending(user_id, None)
     await update.message.reply_text(

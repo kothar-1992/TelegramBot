@@ -29,6 +29,7 @@ import handlers_admin as admin
 import handlers_user as user
 import health
 import router
+import uploads
 from config import is_admin, settings
 from handlers_user import notify_admins
 from views import esc
@@ -66,6 +67,26 @@ ADMIN_COMMANDS = {
 # --------------------------------------------------------------------------- #
 # generic callbacks
 # --------------------------------------------------------------------------- #
+# Anything that is not a compressed Telegram photo. A user can smuggle any
+# byte stream through as a "document", so refuse the whole family outright.
+#: Every media type that is *not* a compressed Telegram photo.
+UNTRUSTED_UPLOADS = (
+    filters.Document.ALL
+    | filters.VIDEO
+    | filters.AUDIO
+    | filters.VOICE
+    | filters.ANIMATION
+    | filters.VIDEO_NOTE
+    | filters.Sticker.ALL
+)
+
+
+async def on_rejected_file(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Refuse documents/archives/videos without ever touching the disk."""
+    await update.message.reply_text(uploads.REJECT_TEXT, parse_mode=ParseMode.HTML)
+    raise ApplicationHandlerStop
+
+
 async def on_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     query = update.callback_query
     data = query.data or ""
@@ -267,6 +288,9 @@ def build_app() -> Application:
 
     # Inline buttons.
     app.add_handler(CallbackQueryHandler(on_callback))
+
+    # Never store a customer-supplied file: refuse every non-photo upload first.
+    app.add_handler(MessageHandler(UNTRUSTED_UPLOADS, on_rejected_file), group=0)
 
     # Admin wizard runs before the generic user handlers and stops the chain
     # only when it actually acted on a pending session.

@@ -61,6 +61,7 @@ class Settings:
     backup_admin_id: int
     backup_minutes: int
     clean_messages: bool
+    max_upload_mb: int
 
     @property
     def configured(self) -> bool:
@@ -84,6 +85,7 @@ settings = Settings(
     backup_admin_id=int(_int_list(os.getenv("BACKUP_ADMIN_ID"))[0]) if _int_list(os.getenv("BACKUP_ADMIN_ID")) else 0,
     backup_minutes=max(1, int(os.getenv("BACKUP_MINUTES", "10") or 10)),
     clean_messages=os.getenv("CLEAN_MESSAGES", "true").strip().lower() not in {"0", "false", "no", "off"},
+    max_upload_mb=max(1, int(os.getenv("MAX_UPLOAD_MB", "10") or 10)),
 )
 
 
