@@ -156,6 +156,43 @@ def main() -> int:
     db.delete_product(hidden_id)
     db.delete_category(other)
 
+    print("3c) /demo fills the categories the admin already has")
+    import json
+
+    from handlers_admin import DEMO_SETTING, _clear_demo, _seed_demo
+
+    demo_cats = [db.add_category(name, "\U0001f4e6") for name in ("ChatGPT", "Gemini", "Claude")]
+    for cid in demo_cats:
+        check(db.count_products(cid, active_only=False) == 0, f"category {cid} starts empty")
+
+    baseline_products = db.count_products(active_only=False)
+    baseline_cats = [c["id"] for c in db.list_categories()]
+
+    new_cats, new_products, note = _seed_demo()
+    check(len(new_products) == 13, f"/demo seeds 13 products (got {len(new_products)})")
+    check(new_cats == [], f"no duplicate categories are created (got {new_cats})")
+    check(all(db.count_products(cid, active_only=False) > 0 for cid in demo_cats), "every category got samples")
+    check(
+        db.count_products(active_only=False) == baseline_products + 13,
+        "nothing beyond the 13 samples was created",
+    )
+    check("already had" in note, "the reply explains where they went")
+
+    chatgpt_id = demo_cats[0]
+    matching = [pid for pid in new_products if db.get_product(pid)["category_id"] == chatgpt_id]
+    check(bool(matching), "the category named ChatGPT received samples")
+    check(
+        all(db.get_product(pid)["name"].startswith("ChatGPT") for pid in matching),
+        "products whose group name matches land in that category",
+    )
+
+    # The bookkeeping /demo clear relies on.
+    db.set_setting(DEMO_SETTING, json.dumps({"categories": new_cats, "products": new_products}))
+    check(_clear_demo() == 13, "/demo clear removes every seeded product")
+    check(db.count_products(active_only=False) == baseline_products, "the catalogue is back to how it was")
+    check([c["id"] for c in db.list_categories()] == baseline_cats, "the admin's own categories survive")
+    db.delete_category(demo_cats[1])
+
     print("4) navigation trail")
     db.push_trail(user_id, "menu:catalog")
     db.push_trail(user_id, f"cat:{cat}:0")

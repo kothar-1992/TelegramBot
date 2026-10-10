@@ -316,6 +316,20 @@ def list_categories() -> list[sqlite3.Row]:
     )
 
 
+def demo_summary(product_ids: list[int]) -> list[sqlite3.Row]:
+    """Group freshly seeded products by the category they landed in."""
+    if not product_ids:
+        return []
+    marks = ",".join("?" * len(product_ids))
+    return _rows(
+        f"SELECT COALESCE(c.emoji, '📦') AS emoji, "
+        f"       COALESCE(c.name, '—') AS name, COUNT(*) AS n "
+        f"FROM products p LEFT JOIN categories c ON c.id = p.category_id "
+        f"WHERE p.id IN ({marks}) GROUP BY p.category_id ORDER BY n DESC, c.name",
+        tuple(product_ids),
+    )
+
+
 def get_category(cat_id: int) -> sqlite3.Row | None:
     return _one("SELECT * FROM categories WHERE id = ?", (cat_id,))
 

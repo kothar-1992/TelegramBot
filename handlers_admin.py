@@ -82,12 +82,47 @@ DEMO_DATA: tuple[tuple[str, str, tuple[tuple[str, int, int, str, str, str], ...]
 DEMO_SETTING = "demo_ids"
 
 
-def _seed_demo() -> tuple[list[int], list[int]]:
+def _demo_targets(existing: list) -> dict[int, tuple[str, str, int | None]]:
+    """Assign each demo group to one of the categories the admin already has.
+
+    Names are matched first so ChatGPT samples land in ChatGPT, then whatever
+    is left is filled round-robin.  With no categories at all the demo set
+    brings its own — that is the only time it creates any.
+    """
+    if not existing:
+        return {i: (emoji, name, None) for i, (emoji, name, _p) in enumerate(DEMO_DATA)}
+
+    by_name: dict[str, object] = {}
+    for row in existing:
+        by_name.setdefault(row["name"].strip().lower(), row)
+
+    targets: dict[int, tuple[str, str, int | None]] = {}
+    for index, (_emoji, name, _products) in enumerate(DEMO_DATA):
+        match = by_name.get(name.strip().lower())
+        if match is not None and match["id"] not in {t[2] for t in targets.values()}:
+            targets[index] = (match["emoji"], match["name"], match["id"])
+
+    spare = [row for row in existing if row["id"] not in {t[2] for t in targets.values()}]
+    for offset, index in enumerate(i for i in range(len(DEMO_DATA)) if i not in targets):
+        row = spare[offset % len(spare)]
+        targets[index] = (row["emoji"], row["name"], row["id"])
+    return targets
+
+
+def _seed_demo() -> tuple[list[int], list[int], str]:
+    """Fill the shop with sample products. Returns (new category ids, product ids, note)."""
+    existing = db.list_categories()
+    targets = _demo_targets(existing)
+
     cat_ids: list[int] = []
     product_ids: list[int] = []
-    for emoji, name, products in DEMO_DATA:
-        cat_id = db.add_category(name, emoji)
-        cat_ids.append(cat_id)
+
+    for index, (_emoji, _name, products) in enumerate(DEMO_DATA):
+        emoji, name, existing_id = targets[index]
+        cat_id = existing_id if existing_id is not None else db.add_category(name, emoji)
+        if existing_id is None:
+            cat_ids.append(cat_id)
+
         for entry in products:
             title, price, stock, note = entry[:4]
             warranty = entry[4] if len(entry) > 4 else ""
@@ -98,7 +133,14 @@ def _seed_demo() -> tuple[list[int], list[int]]:
                     warranty=warranty, tutorial_url=tutorial,
                 )
             )
-    return cat_ids, product_ids
+
+    if cat_ids and existing:
+        note = f"created {len(cat_ids)} new categor{'y' if len(cat_ids) == 1 else 'ies'} for the remainder"
+    elif cat_ids:
+        note = "built a fresh demo catalogue"
+    else:
+        note = f"filled the {len(existing)} categories you already had"
+    return cat_ids, product_ids, note
 
 
 def _clear_demo() -> int:
@@ -135,15 +177,26 @@ async def cmd_demo(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         await update.message.reply_text(t("demo_exists"), parse_mode=ParseMode.HTML)
         return
 
-    cat_ids, product_ids = _seed_demo()
+    cat_ids, product_ids, note = _seed_demo()
     db.set_setting(DEMO_SETTING, json.dumps({"categories": cat_ids, "products": product_ids}))
 
     admin_id = update.effective_user.id
     if db.get_balance(admin_id) == 0:
         db.change_balance(admin_id, 500_000)  # so the order flow can be tested
 
+    summary = "\n".join(
+        f"{row['emoji']} {esc(row['name'])} — {row['n']}"
+        for row in db.demo_summary(product_ids)
+    )
     await update.message.reply_text(
-        t("demo_done", cats=len(cat_ids), products=len(product_ids), balance=money(db.get_balance(admin_id))),
+        t(
+            "demo_done",
+            cats=len(cat_ids),
+            products=len(product_ids),
+            balance=money(db.get_balance(admin_id)),
+            note=note,
+            summary=summary,
+        ),
         parse_mode=ParseMode.HTML,
     )
 

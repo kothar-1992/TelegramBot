@@ -263,9 +263,12 @@ EN: dict[str, str] = {
     "setbanner_cleared": "🖼 Welcome banner removed.",
     "setname_usage": "⚠️ Use <code>/setname &lt;name&gt;</code>.",
     "setname_done": "✅ Shop name: {name}",
-    "demo_done": "✅ <b>Demo catalogue ready</b>\n\n🗂 Categories: <b>{cats}</b>\n"
-    "🛍 Products: <b>{products}</b>\n💰 Your balance: <b>{balance}</b>\n\n"
-    "Tap <b>🛍 Products</b> to look around.\n🧹 Remove it with <code>/demo clear</code>",
+    "demo_done": "✅ <b>Demo products added</b>\n\n"
+    "🗂 Categories: <b>{cats}</b> · 🛍 Products: <b>{products}</b>\n"
+    "💰 Your balance: <b>{balance}</b>\n\n"
+    "{note}:\n{summary}\n\n"
+    "🛍 Browse them under <b>🛍 Products</b>.\n"
+    "🧹 Remove them all with <code>/demo clear</code>",
     "demo_exists": "ℹ️ Demo data already exists — run <code>/demo clear</code> first.",
     "demo_cleared": "🗑 Removed <b>{count}</b> demo products.",
     "demo_nothing": "ℹ️ No demo data. Run <code>/demo</code> first.",
@@ -549,9 +552,12 @@ MY: dict[str, str] = {
     "setbanner_cleared": "🖼 Welcome banner ဖျက်ပြီးပါပြီ။",
     "setname_usage": "⚠️ `/setname <အမည်>` သုံးပါ။",
     "setname_done": "✅ ဆိုင်အမည်: {name}",
-    "demo_done": "✅ <b>Demo catalogue ထည့်ပြီးပါပြီ</b>\n\n🗂 Category: <b>{cats}</b>\n"
-    "🛍 ထုတ်ကုန်: <b>{products}</b>\n💰 သင့်လက်ကောင်း: <b>{balance}</b>\n\n"
-    "<b>🛍 ထုတ်ကုန်များ</b> ကို နှိပါပြီး စမ်းကြည့်ပါ။\n🧹 ဖျက်ချင်ရင် <code>/demo clear</code>",
+    "demo_done": "✅ <b>ဥပမာ ထုတ်ကုန်များ ထည့်ပြီးပါပြီ</b>\n\n"
+    "🗂 Category အသစ်: <b>{cats}</b> · 🛍 ထုတ်ကုန်: <b>{products}</b>\n"
+    "💰 သင့်လက်ကောင်း: <b>{balance}</b>\n\n"
+    "{note}:\n{summary}\n\n"
+    "<b>🛍 ထုတ်ကုန်များ</b> အောက်မှာ ကြည့်ပါ။\n"
+    "🧹 အားလုံးဖျက်ချင်ရင် <code>/demo clear</code>",
     "demo_exists": "ℹ️ Demo data ရှိနေပါပြီ။ အရင် <code>/demo clear</code> နဲ့ ဖျက်ပါ။",
     "demo_cleared": "🗑 Demo ထုတ်ကုန် <b>{count}</b> ခု ဖျက်ပြီးပါပြီ။",
     "demo_nothing": "ℹ️ Demo data မရှိပါ။ အရင်က <code>/demo</code> ရိုက်ဖို့ မလိုပါ။",
