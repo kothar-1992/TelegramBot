@@ -1,17 +1,38 @@
+# ─────────────────────────────────────────────────────────────────────────────
+#  💰 COST SAFETY — read before changing anything in this file
+#
+#  This blueprint must stay on the FREE plan. Costs are only incurred in two
+#  ways, and both are avoided automatically when no payment method is on file:
+#
+#    1. outbound bandwidth  > 5 GB/month    -> service suspended (not billed)
+#    2. build pipeline min  > 500/month     -> new builds disabled (not billed)
+#    3. free instance hours > 750/month    -> services suspended until next month
+#
+#  Rules:
+#    • Never change `plan: free` to `starter` or any paid plan.
+#    • Do NOT add a credit card on Render. With a card saved, overages are
+#      charged at $0.15/GB — without one, Render suspends instead.
+#    • Set a spend limit in Billing → Settings as a second line of defence.
+#    • Avoid `git push` loops: each push triggers a Docker build (~3 min).
+#
+#  This bot's own traffic is tiny — long-polling, a 9-minute self-ping and a
+#  shop.db snapshot every 10 minutes. It uses well under 100 MB/month.
+# ─────────────────────────────────────────────────────────────────────────────
+
 services:
   - type: web
     name: selling-shop-bot
     runtime: docker
-    plan: free
+    plan: free                    # ← DO NOT CHANGE. Free instance = $0.
     dockerfilePath: ./Dockerfile
     dockerContext: .
     healthCheckPath: /health
-    autoDeploy: true
+    autoDeploy: true              # every push = 1 build (~3 min of the 500)
     envVars:
       - key: BOT_TOKEN
-        sync: false          # paste the token from @BotFather
+        sync: false               # paste the token from @BotFather
       - key: ADMIN_IDS
-        sync: false          # e.g. 5280138602
+        sync: false               # e.g. 5280138602
       - key: SHOP_NAME
         value: W3K Digital Pay & Services
       - key: CURRENCY
@@ -24,20 +45,20 @@ services:
         value: shop.db
       - key: PAGE_SIZE
         value: "6"
-      # Render/US can reach api.telegram.org directly — no proxy needed.
+      # Render/US reaches api.telegram.org directly — leave empty.
       - key: PROXY
         value: ""
-      # Your public URL; Render fills this in after the first deploy.
-      # The bot pings it every 9 min so the free tier never idles to sleep.
+      # The bot pings its own public URL every 9 min so the free tier never
+      # idles to sleep. Leave empty now, add it after the first deploy.
       - key: SELF_URL
         sync: false
       - key: KEEPALIVE_MINUTES
         value: "9"
-      # Mirrors shop.db into your Telegram chat every 10 min and restores
-      # it on boot, because the free filesystem is wiped on every deploy.
+      # Mirrors shop.db into your Telegram chat and restores it on boot,
+      # because the free filesystem is wiped on every deploy.
       - key: BACKUP_ENABLED
         value: "true"
       - key: BACKUP_ADMIN_ID
-        sync: false          # your Telegram numeric id
+        sync: false               # your Telegram numeric id
       - key: BACKUP_MINUTES
         value: "10"
