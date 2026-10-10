@@ -1,0 +1,43 @@
+services:
+  - type: web
+    name: selling-shop-bot
+    runtime: docker
+    plan: free
+    dockerfilePath: ./Dockerfile
+    dockerContext: .
+    healthCheckPath: /health
+    autoDeploy: true
+    envVars:
+      - key: BOT_TOKEN
+        sync: false          # paste the token from @BotFather
+      - key: ADMIN_IDS
+        sync: false          # e.g. 5280138602
+      - key: SHOP_NAME
+        value: W3K Digital Pay & Services
+      - key: CURRENCY
+        value: MMK
+      - key: WELCOME_TEXT
+        value: "👋 Welcome to {shop}"
+      - key: SUPPORT_USERNAME
+        sync: false
+      - key: DB_PATH
+        value: shop.db
+      - key: PAGE_SIZE
+        value: "6"
+      # Render/US can reach api.telegram.org directly — no proxy needed.
+      - key: PROXY
+        value: ""
+      # Your public URL; Render fills this in after the first deploy.
+      # The bot pings it every 9 min so the free tier never idles to sleep.
+      - key: SELF_URL
+        sync: false
+      - key: KEEPALIVE_MINUTES
+        value: "9"
+      # Mirrors shop.db into your Telegram chat every 10 min and restores
+      # it on boot, because the free filesystem is wiped on every deploy.
+      - key: BACKUP_ENABLED
+        value: "true"
+      - key: BACKUP_ADMIN_ID
+        sync: false          # your Telegram numeric id
+      - key: BACKUP_MINUTES
+        value: "10"
