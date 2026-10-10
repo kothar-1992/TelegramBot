@@ -64,17 +64,27 @@ def main_menu(username: str = "", is_admin: bool = False) -> InlineKeyboardMarku
     return InlineKeyboardMarkup(rows)
 
 
-def categories(cats: list[sqlite3.Row]) -> InlineKeyboardMarkup:
-    rows = [
-        [_btn(f"{c['emoji']} {c['name']}  ({c['item_count']})", f"cat:{c['id']}:0")]
-        for c in cats
-    ]
+def categories(cats: list[sqlite3.Row], page: int = 0, pages: int = 1) -> InlineKeyboardMarkup:
+    rows = [_btn(f"{c['emoji']} {c['name']}  ({c['item_count']})", f"cat:{c['id']}:0") for c in cats]
+    rows = grid(rows, per_row=2)
+
+    pager: list[InlineKeyboardButton] = []
+    pager.append(_btn("◀️", f"menu:catalog:{page - 1}" if page > 0 else f"menu:catalog:{max(page - 1, 0)}"))
+    pager.append(_btn(f"📄 {page + 1}/{max(pages, 1)}", f"menu:catalog:{page}"))
+    pager.append(
+        _btn("နောက်သို့ ▶️", f"menu:catalog:{page + 1}" if page + 1 < pages else f"menu:catalog:{page}")
+    )
+    rows.append(pager)
     rows += nav_row()
     return InlineKeyboardMarkup(rows)
 
 
 def product_card(product: sqlite3.Row) -> InlineKeyboardMarkup:
     """Keyboard attached to a single product photo card."""
+    if int(product["price"]) <= 0:
+        return InlineKeyboardMarkup(
+            [[_btn("📞 စျေးနှင့်မေးမြန်းမည်", f"ask:{product['id']}")]]
+        )
     return InlineKeyboardMarkup([[_btn("🛒 ဝယ်မည်", f"prod:{product['id']}")]])
 
 
@@ -89,9 +99,12 @@ def product_list_controls(cat_id: int, page: int, pages: int) -> list[list[Inlin
 
 
 def product_detail(product: sqlite3.Row) -> InlineKeyboardMarkup:
-    return InlineKeyboardMarkup(
-        nav_row(extra=[_btn("🛒 သို့မဟုတ် ဝယ်မည်", f"qty:{product['id']}:1")])
+    action = (
+        _btn("🛒 သို့မဟုတ် ဝယ်မည်", f"qty:{product['id']}:1")
+        if int(product["price"]) > 0
+        else _btn("📞 စျေးနှင့်မေးမြန်းမည်", f"ask:{product['id']}")
     )
+    return InlineKeyboardMarkup(nav_row(extra=[action]))
 
 
 def qty_selector(product: sqlite3.Row, options: tuple[int, ...] = (1, 2, 3, 5, 10)) -> InlineKeyboardMarkup:

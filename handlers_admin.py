@@ -20,6 +20,111 @@ log = logging.getLogger(__name__)
 # --------------------------------------------------------------------------- #
 # commands
 # --------------------------------------------------------------------------- #
+#: Demo catalogue — `(category emoji, category name, [(product, price, stock, note)])`
+DEMO_DATA: tuple[tuple[str, str, tuple[tuple[str, int, int, str], ...]], ...] = (
+    ("💰", "USDT / Crypto", (
+        ("USDT TRC20", 65_000, 10, "မိနစ်ပိုင်းအတွင်း ပေးပို့ပါမည်။"),
+        ("USDT BEP20", 64_000, 5, "Binance Smart Chain။"),
+        ("USDT TON", 63_000, 0, "ယခုအချိန်တွင် ကုန်မရှိပါ။"),
+    )),
+    ("🤖", "ChatGPT", (
+        ("ChatGPT GO 1 Month (Full Warranty)", 45_000, 3, "30 ရက်အာမခံ။"),
+        ("ChatGPT Plus 1 Month (10 Day Warranty)", 53_000, 2, "အကောင့်ပေးပို့။"),
+        ("ChatGPT Plus K12 Edu 2 Year", 0, 0, "ပမာနှင့်ထည့်ရန် ဆက်သွယ်ရန်။"),
+    )),
+    ("💼", "Microsoft", (
+        ("Microsoft 365 Personal 1 Month", 12_000, 20, "စုပစ္စည်း အားလုံးပါ။"),
+        ("Windows 11 Pro Lifetime", 35_000, 8, "တစ်ခါရှည်တည်း။"),
+    )),
+    ("🎨", "Adobe", (
+        ("Adobe CC All Apps 1 Month", 40_000, 4, "Photoshop, Illustrator အားလုံး။"),
+        ("Photoshop 1 Month", 15_000, 10, "အသုံးပြုသူအများကြိုက်ပါတယ်။"),
+    )),
+    ("📹", "Zoom", (
+        ("Zoom Pro 1 Month", 18_000, 15, "Meeting 500 ကနေ့အထက်။"),
+    )),
+    ("🎬", "Design Tools", (
+        ("Canva Pro 1 Year", 25_000, 6, "၁ နှစ်စာများအသုံးပြု။"),
+        ("Canva Team 1 Month", 12_000, 0, "လက်ရှိမရှိပါ။"),
+    )),
+)
+
+DEMO_SETTING = "demo_ids"
+
+
+def _seed_demo() -> tuple[list[int], list[int]]:
+    cat_ids: list[int] = []
+    product_ids: list[int] = []
+    for emoji, name, products in DEMO_DATA:
+        cat_id = db.add_category(name, emoji)
+        cat_ids.append(cat_id)
+        for title, price, stock, note in products:
+            product_ids.append(db.add_product(title, price, category_id=cat_id, description=note, stock=stock))
+    return cat_ids, product_ids
+
+
+def _clear_demo() -> int:
+    stored = _read_demo_ids()
+    removed = 0
+    for pid in stored.get("products", []):
+        db.delete_product(int(pid))
+        removed += 1
+    for cid in stored.get("categories", []):
+        db.delete_category(int(cid))
+    db.set_setting(DEMO_SETTING, None)
+    return removed
+
+
+def _read_demo_ids() -> dict:
+    import json
+
+    try:
+        return json.loads(db.get_setting(DEMO_SETTING) or "{}")
+    except (ValueError, TypeError):
+        return {}
+
+
+async def cmd_demo(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """`/demo` seeds a sample catalogue; `/demo clear` removes it again."""
+    argument = " ".join(update.message.text.split()[1:]).strip().lower()
+
+    if argument.startswith(("clear", "clean", "remove", "ဖျက်")):
+        removed = _clear_demo()
+        await update.message.reply_text(
+            f"🗑 Demo ထုတ်ကုန် <b>{removed}</b> ခု ဖျက်ပြီးပါပြီ။"
+            if removed
+            else "ℹ️ Demo data မရှိပါ။ အရင်က <code>/demo</code> ရိုက်ဖို့ မလိုပါ။",
+            parse_mode=ParseMode.HTML,
+        )
+        return
+
+    if db.get_setting(DEMO_SETTING):
+        await update.message.reply_text(
+            "ℹ️ Demo data ရှိနေပါပြီ။ အရင် <code>/demo clear</code> နဲ့ ဖျက်ပါ။",
+            parse_mode=ParseMode.HTML,
+        )
+        return
+
+    import json
+
+    cat_ids, product_ids = _seed_demo()
+    db.set_setting(DEMO_SETTING, json.dumps({"categories": cat_ids, "products": product_ids}))
+
+    admin_id = update.effective_user.id
+    if db.get_balance(admin_id) == 0:
+        db.change_balance(admin_id, 500_000)  # so the order flow can be tested
+
+    await update.message.reply_text(
+        "✅ <b>Demo catalogue ထည့်ပြီးပါပြီ</b>\n\n"
+        f"🗂 Category: <b>{len(cat_ids)}</b> ခု\n"
+        f"🛍 ထုတ်ကုန်: <b>{len(product_ids)}</b> ခု\n"
+        f"💰 သင့်လက်ကောင်း: <b>{money(db.get_balance(admin_id))}</b>\n\n"
+        "🛍 <b>ထုတ်ကုန်များ</b> ကို နှိပါပြီး စမ်းကြည့်ပါ။\n"
+        "🧹 ဖျက်ချင်ရင် <code>/demo clear</code>",
+        parse_mode=ParseMode.HTML,
+    )
+
+
 async def cmd_id(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     user = update.effective_user
     await update.message.reply_text(

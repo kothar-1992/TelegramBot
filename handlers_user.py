@@ -186,6 +186,10 @@ async def on_order_confirm(update: Update, context: ContextTypes.DEFAULT_TYPE) -
         await query.answer("⚠️ ဤထုတ်ကုန် ကုန်ပမာနှင့်မရှိတော့ပါ။", show_alert=True)
         return
 
+    if int(product["price"]) <= 0:
+        await query.answer("📞 ဤထုတ်ကုန်က စျေးနှင့်မသတ်မှတ်ဖြစ်လို့ အော်ဒါလုပ်လို့ မရပါ။", show_alert=True)
+        return
+
     total = int(product["price"]) * qty
     if db.get_balance(user_id) < total:
         await query.answer(

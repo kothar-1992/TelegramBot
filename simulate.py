@@ -299,7 +299,7 @@ async def main() -> int:
     check(len(vis) == 3, f"category screen shows 3 messages (got {len(vis)})")
     await tap("nav:back")
     vis = fake.visible()
-    check(len(vis) == 1 and "အမျိုးအစားများ" in (vis[0].text or ""),
+    check(len(vis) == 1 and "Category စာရင်း" in (vis[0].text or ""),
           f"back returns to the catalogue list (got {labels(vis)})")
     await tap("nav:back")
     vis = fake.visible()

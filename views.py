@@ -26,8 +26,12 @@ class Part:
     reply_keyboard: ReplyKeyboardMarkup | None = None
 
 
+PRICE_TBD = "💬 စျေးနှင့်မသတ်မှတ်"
+
+
 def money(amount: int) -> str:
-    return f"{int(amount):,} {settings.currency}"
+    """`0` means "price on request" — never show a free product by accident."""
+    return f"{int(amount):,} {settings.currency}" if int(amount) > 0 else PRICE_TBD
 
 
 def esc(text: str | None) -> str:
@@ -61,12 +65,29 @@ def main(user_id: int) -> list[Part]:
     return [Part(text=f"{welcome}\n\n{balance_line}", keyboard=menu_kb)]
 
 
-def catalog(user_id: int) -> list[Part]:
-    cats = db.list_categories()
-    if not cats:
-        return [Part(text="🛍 <b>ထုတ်ကုန်စာရင်း</b>\n\nယခုအချိန်တွင် ထုတ်ကုန်များ မရှိသေးပါ။", keyboard=kb.simple(kb.nav_row()))]
-    lines = ["🛍 <b>ထုတ်ကုန်အမျိုးအစားများ</b>\n", "အောက်က အမျိုးအစားကို နှိပါပြီး ကြည့်ရှုပါ။"]
-    return [Part(text="\n".join(lines), keyboard=kb.categories(cats))]
+CATEGORIES_PER_PAGE = 8
+
+
+def catalog(user_id: int, page: int = 0) -> list[Part]:
+    all_cats = db.list_categories()
+    if not all_cats:
+        return [
+            Part(
+                text="🛍 <b>ထုတ်ကုန်စာရင်း</b>\n\nယခုအချိန်တွင် ထုတ်ကုန်များ မရှိသေးပါ။",
+                keyboard=kb.simple(kb.nav_row()),
+            )
+        ]
+
+    pages = max(1, -(-len(all_cats) // CATEGORIES_PER_PAGE))
+    page = max(0, min(page, pages - 1))
+    cats = all_cats[page * CATEGORIES_PER_PAGE : (page + 1) * CATEGORIES_PER_PAGE]
+
+    total_products = db.count_products()
+    header = [
+        f"🗂 <b>Category စာရင်း</b> — အမျိုးအစား {len(all_cats)} ခု · ထုတ်ကုန် {total_products} ခု\n",
+        "အောက်က အမျိုးအစားကို နှိပါပြီး ထုတ်ကုန်များကြည့်ပါ။",
+    ]
+    return [Part(text="\n".join(header), keyboard=kb.categories(cats, page, pages))]
 
 
 def category_products(cat_id: int, page: int) -> list[Part]:
@@ -118,6 +139,23 @@ def product_detail(product_id: int) -> list[Part]:
     else:
         part.keyboard = kb.product_detail(p)
     return [part]
+
+
+def enquire(product_id: int) -> list[Part]:
+    """`ask:<id>` — shown when a product has no fixed price."""
+    p = db.get_product(product_id)
+    if p is None:
+        return [Part(text="⚠️ ထုတ်ကုန် မတွေ့ရဘူး။", keyboard=kb.simple(kb.nav_row()))]
+
+    handle = settings.support_username
+    contact = f"@{esc(handle)} ကို ဆက်သွယ်ပေးပါ။" if handle else "Admin ကို ဆက်သွယ်ပေးပါ။"
+    text = (
+        "📞 <b>စျေးနှင့်မေးမြန်းရန်</b>\n\n"
+        f"🛍 ထုတ်ကုန်: <b>{esc(p['name'])}</b>\n"
+        f"💵 စျေးကြေး: {PRICE_TBD}\n\n"
+        f"{contact}"
+    )
+    return [Part(text=text, photo=p["photo_id"], keyboard=kb.simple(kb.nav_row()))]
 
 
 def qty_picker(product_id: int, qty: int, user_id: int) -> list[Part]:
@@ -285,9 +323,10 @@ def build(data: str, user_id: int) -> list[Part]:
 
     if head == "menu":
         page = parts[1] if len(parts) > 1 else "main"
+        arg = parts[2] if len(parts) > 2 else "0"
         return {
             "main": lambda: main(user_id),
-            "catalog": lambda: catalog(user_id),
+            "catalog": lambda: catalog(user_id, int(arg) if arg.isdigit() else 0),
             "balance": lambda: balance_screen(user_id),
             "orders": lambda: orders_screen(user_id),
             "support": support_screen,
@@ -302,6 +341,8 @@ def build(data: str, user_id: int) -> list[Part]:
         return category_products(int(parts[1]), int(parts[2]))
     if head == "prod" and len(parts) == 2:
         return product_detail(int(parts[1]))
+    if head == "ask" and len(parts) == 2:
+        return enquire(int(parts[1]))
     if head == "qty" and len(parts) == 3:
         return qty_picker(int(parts[1]), int(parts[2]), user_id)
     if head == "adm":

@@ -55,6 +55,7 @@ ADMIN_COMMANDS = {
     "setbanner": admin.cmd_setbanner,
     "setname": admin.cmd_setname,
     "pending": admin.cmd_pending,
+    "demo": admin.cmd_demo,
 }
 
 
