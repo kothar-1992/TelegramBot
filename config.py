@@ -60,6 +60,7 @@ class Settings:
     backup_enabled: bool
     backup_admin_id: int
     backup_minutes: int
+    clean_messages: bool
 
     @property
     def configured(self) -> bool:
@@ -82,6 +83,7 @@ settings = Settings(
     backup_enabled=os.getenv("BACKUP_ENABLED", "false").strip().lower() in {"1", "true", "yes", "on"},
     backup_admin_id=int(_int_list(os.getenv("BACKUP_ADMIN_ID"))[0]) if _int_list(os.getenv("BACKUP_ADMIN_ID")) else 0,
     backup_minutes=max(1, int(os.getenv("BACKUP_MINUTES", "10") or 10)),
+    clean_messages=os.getenv("CLEAN_MESSAGES", "true").strip().lower() not in {"0", "false", "no", "off"},
 )
 
 

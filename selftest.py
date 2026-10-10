@@ -97,6 +97,21 @@ def main() -> int:
     check(db.pop_trail(user_id) == "menu:catalog", "trail: pops previous entry")
     check(db.pop_trail(user_id) is None, "trail: empty when exhausted")
 
+    print("4b) session setters work on a brand-new user")
+    fresh = 555_000_111  # never seen by this process
+    db.set_pending(fresh, {"action": "topup_amount"})
+    check(db.get_pending(fresh) == {"action": "topup_amount"}, "set_pending creates the session row")
+    db.set_trail(fresh, ["menu:main"])
+    check(db.trail(fresh) == ["menu:main"], "set_trail creates the session row")
+    db.set_msgs(fresh, [1, 2, 3])
+    check(db.get_msgs(fresh) == [1, 2, 3], "set_msgs creates the session row")
+    db.set_pending(fresh, None)
+    check(db.get_pending(fresh) is None, "set_pending(None) clears the state")
+    db.change_balance(fresh, 500)
+    check(db.get_balance(fresh) == 500, "change_balance creates the user row")
+    db.change_balance(fresh, -500)
+    check(db.get_balance(fresh) == 0, "balance returns to zero")
+
     print("5) balance + stock maths")
     before = db.get_balance(user_id)
     total = 1000 * 3

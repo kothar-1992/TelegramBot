@@ -12,7 +12,7 @@ from telegram.ext import ContextTypes
 
 import db
 import router
-from config import settings
+from config import is_admin, settings
 from keyboards import MAIN
 from views import esc, money
 
@@ -27,6 +27,22 @@ def _register(update: Update) -> int:
     user = update.effective_user
     db.upsert_user(user.id, user.username, user.full_name)
     return user.id
+
+
+async def wipe(update: Update) -> bool:
+    """Delete the customer's own message so the chat never fills with clutter.
+
+    Admins are skipped on purpose — they type commands and upload product
+    photos, and they need to see them while driving the console.
+    """
+    if not settings.clean_messages or is_admin(update.effective_user.id):
+        return False
+    try:
+        await update.effective_message.delete()
+        return True
+    except (TelegramError, AttributeError):
+        log.debug("Could not delete message", exc_info=True)
+        return False
 
 
 # --------------------------------------------------------------------------- #
@@ -54,6 +70,7 @@ async def on_text(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     """Plain-text messages: menu button, top-up amount entry, or a nudge home."""
     user_id = _register(update)
     text = (update.message.text or "").strip()
+    await wipe(update)  # keep the chat tidy before anything is rendered
 
     if text.lower().lstrip("🏠").strip() in MENU_TEXTS:
         await router.go(update, context, MAIN)
@@ -89,6 +106,7 @@ async def on_photo(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         return
 
     amount = int(pending["amount"])
+    await wipe(update)  # the receipt is saved to disk + backed up already
     RECEIPTS_DIR.mkdir(exist_ok=True)
     path = RECEIPTS_DIR / f"topup-{user_id}-{db.stamp()}.jpg"
     saved: str | None = None

@@ -320,6 +320,15 @@ def _session(user_id: int) -> sqlite3.Row:
     return row
 
 
+def _ensure_session(user_id: int) -> None:
+    """Make sure the session row exists before an UPDATE writes to it.
+
+    Without this every setter silently no-ops for a user who has never opened
+    a screen — which broke the top-up flow on a first message.
+    """
+    _exec("INSERT OR IGNORE INTO sessions (user_id) VALUES (?)", (user_id,))
+
+
 def trail(user_id: int) -> list[str]:
     """Navigation stack of visited screens; the last entry is the current one."""
     try:
@@ -329,6 +338,7 @@ def trail(user_id: int) -> list[str]:
 
 
 def set_trail(user_id: int, entries: list[str]) -> None:
+    _ensure_session(user_id)
     _exec("UPDATE sessions SET trail = ? WHERE user_id = ?", (json.dumps(entries), user_id))
 
 
@@ -350,6 +360,7 @@ def clear_trail(user_id: int) -> None:
 
 
 def set_msgs(user_id: int, msgs: list[int]) -> None:
+    _ensure_session(user_id)
     _exec("UPDATE sessions SET msgs = ? WHERE user_id = ?", (json.dumps(msgs), user_id))
 
 
@@ -366,6 +377,7 @@ def get_msgs(user_id: int) -> list[int]:
 
 
 def set_pending(user_id: int, data: dict | None) -> None:
+    _ensure_session(user_id)
     _exec("UPDATE sessions SET pending = ? WHERE user_id = ?", (json.dumps(data) if data else None, user_id))
 
 

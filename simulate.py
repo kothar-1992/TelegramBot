@@ -163,6 +163,10 @@ class FakeUpdate:
         self.effective_message = message
         self.callback_query = callback_query
 
+    @property
+    def message(self):
+        return self.effective_message
+
 
 # --------------------------------------------------------------------------- #
 # helpers
@@ -326,6 +330,36 @@ async def main() -> int:
     parts = views.build("menu:catalog", user.id)
     flat = [b.callback_data for r in parts[0].keyboard.inline_keyboard for b in r]
     check("nav:back" in flat and "menu:main" in flat, "Back + Main Menu on the empty state")
+
+    print("12) the customer's own message is cleaned up")
+    fake2 = FakeBot()
+    fake2.owner = user.id
+    ctx2 = FakeContext(fake2)
+    real_is_admin = handlers_user.is_admin
+
+    def as_message(who: FakeUser, message_id: int, text: str) -> FakeMessage:
+        msg = FakeMessage(fake2, who, text)
+        msg.message_id = message_id
+        fake2.messages[message_id] = SentMessage(who.id, message_id, text=text)
+        return msg
+
+    typed = as_message(user, 9001, "50000")
+    db.set_pending(user.id, {"action": "topup_amount"})
+    await handlers_user.on_text(FakeUpdate(user, message=typed), ctx2)
+    check(fake2.messages[9001].deleted, "the typed top-up amount is deleted from the chat")
+    check(db.get_pending(user.id) == {"action": "topup_receipt", "amount": 50000}, "the amount was still processed")
+
+    stray = as_message(user, 9002, "hello?")
+    await handlers_user.on_text(FakeUpdate(user, message=stray), ctx2)
+    check(fake2.messages[9002].deleted, "ordinary chat messages are deleted too")
+
+    boss = FakeUser(999, "boss", "Boss")
+    handlers_user.is_admin = lambda uid: uid == 999  # this module reads its own copy
+    boss_msg = as_message(boss, 9003, "/products")
+    db.set_pending(boss.id, {"action": "topup_amount"})
+    await handlers_user.on_text(FakeUpdate(boss, message=boss_msg), ctx2)
+    check(not fake2.messages[9003].deleted, "admin messages stay put as a working console")
+    handlers_user.is_admin = real_is_admin
 
     print()
     if FAILURES:
