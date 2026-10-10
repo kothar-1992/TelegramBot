@@ -253,17 +253,22 @@ def admin_panel() -> InlineKeyboardMarkup:
 
 
 def admin_product_list(products: list[sqlite3.Row], page: int, pages: int) -> InlineKeyboardMarkup:
-    rows = [
-        [_btn(f"{'🟢' if p['is_active'] else '🔴'} {p['name'][:28]} — {_price(p['price'])}", f"adm:prod:{p['id']}")]
-        for p in products
-    ]
+    rows = [[_btn(admin_product_label(p), f"adm:prod:{p['id']}")] for p in products]
     clamped = max(0, min(page, pages - 1))
     pager = [_btn(t("prev"), f"adm:prod:page:{max(clamped - 1, 0)}")]
     pager.append(_btn(t("page", page=clamped + 1, pages=max(pages, 1)), "adm:prod:list"))
     pager.append(_btn(t("next"), f"adm:prod:page:{min(clamped + 1, pages - 1)}"))
     rows.append(pager)
-    rows.append([_btn(t("back"), "menu:admin"), _btn(t("main_menu"), MAIN)])
+    rows.append([_btn(t("admin_prod_new"), "adm:cat:new"), _btn(t("back"), "menu:admin")])
     return InlineKeyboardMarkup(rows)
+
+
+def admin_product_label(product: sqlite3.Row) -> str:
+    """`🟢 ChatGPT Plus · 53,000 MMK` / `🔴 ChatGPT K12 — hidden`."""
+    name = product["name"][:26].strip()
+    if not product["is_active"]:
+        return f"🔴 {name} — {t('prod_off')}"
+    return f"🟢 {_clip(name, _price(product['price']))} · {_price(product['price'])}"
 
 
 def admin_category_list(cats: list[sqlite3.Row]) -> InlineKeyboardMarkup:

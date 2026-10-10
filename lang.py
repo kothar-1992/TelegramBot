@@ -239,6 +239,11 @@ EN: dict[str, str] = {
     "Everything after the first line is saved as the description.",
     "addproduct_caption_prompt": "📝 <b>Step 2</b> — send the caption with the photo.\n\n"
     "<code>Name | Price | Category | Stock | Warranty | Tutorial</code>",
+    "addproduct_prompt_into": "🛍 <b>Adding to {category}</b>\n\n"
+    "<b>Step 1</b> — send the product photo.\n\n"
+    "<b>Step 2</b> — send a caption with the photo:\n\n"
+    "<code>Name | Price | Stock | Warranty | Tutorial</code>\n\n"
+    "The category is already set, so leave it out of the caption.",
     "addproduct_bad_caption": "⚠️ Bad caption — use <code>Name | Price</code> to start.",
     "addcat_prompt": "🗂 Type the category name.",
     "addcat_saved": "✅ Category saved — <code>{id}</code> · {emoji} {name}",
@@ -279,6 +284,11 @@ EN: dict[str, str] = {
     # admin extras
     "cat_list_title": "🗂 <b>Categories</b>\n",
     "cat_list_item": "<code>{id}</code> · {emoji} {name} — {count}",
+    "adm_cat_header": "{emoji} <b>{name}</b>\n"
+    "🆔 id: {id} · 🛍 {total} products · {active} live",
+    "adm_cat_empty": "{emoji} <b>{name}</b>  (id: {id})\n\n"
+    "No products here yet — add the first one below.",
+    "admin_prod_new": "➕ Add product",
     "prod_list_title": "🛍 <b>Products</b>\n",
     "prod_admin_price": "💵 Price: <b>{price}</b>",
     "prod_admin_stock": "📦 Stock: {stock}",
@@ -515,6 +525,11 @@ MY: dict[str, str] = {
     "ပထမဆုံးလိုင်းအောက်ကို description အဖြစ် သိမ်းပါမည်။",
     "addproduct_caption_prompt": "📝 အဆင့် (၂) — ပုံနဲ့အတူ Caption ပို့ပါ —\n\n"
     "<code>အမည် | စျေးကြေး | Category | ကုန်ပမာနှင့် | အာမခံ | Tutorial</code>",
+    "addproduct_prompt_into": "🛍 <b>{category} ထဲသို့ ထည့်နေပါသည်</b>\n\n"
+    "<b>အဆင့် (၁)</b> — ထုတ်ကုန်ပုံ ပို့ပါ။\n\n"
+    "<b>အဆင့် (၂)</b> — ပုံနဲ့အတူ Caption ပို့ပါ —\n\n"
+    "<code>အမည် | စျေးကြေး | ကုန်ပမာနှင့် | အာမခံ | Tutorial</code>\n\n"
+    "Category ကို အောက်မှာ မထည့်နိုင်ပါ — ဒီမှာ သတ်မှတ်ပြီးသားပါ။",
     "addproduct_bad_caption": "⚠️ Caption ပုံစံ မမှန်ပါ — `<အမည်> | <စျေးကြေး>` အတိုင်း စမ်းပါ။",
     "addcat_prompt": "🗂 Category အမည် ရိုက်ထည့်ပါ။",
     "addcat_saved": "✅ Category ထည့်ပြီးပါပြီ — <code>{id}</code> · {emoji} {name}",
@@ -554,6 +569,11 @@ MY: dict[str, str] = {
     # admin extras
     "cat_list_title": "🗂 <b>Category စာရင်း</b>\n",
     "cat_list_item": "<code>{id}</code> · {emoji} {name} — {count} ခု",
+    "adm_cat_header": "{emoji} <b>{name}</b>\n"
+    "🆔 id: {id} · 🛍 ထုတ်ကုန် {total} ခု · {active} ခု တိုက်ရိုက်",
+    "adm_cat_empty": "{emoji} <b>{name}</b>  (id: {id})\n\n"
+    "ဒီမှာ ထုတ်ကုန် မရှိသေးပါ — အောက်က ခလုပ်နဲ့ ပထမဆုံးထုတ်ကုန် ထည့်ပါ။",
+    "admin_prod_new": "➕ ထုတ်ကုန် ထည့်မယ်",
     "prod_list_title": "🛍 <b>ထုတ်ကုန်စာရင်း</b>\n",
     "prod_admin_price": "💵 စျေးကြေး: <b>{price}</b>",
     "prod_admin_stock": "📦 ကုန်ပမာနှင့်: {stock}",

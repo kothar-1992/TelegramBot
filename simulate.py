@@ -19,10 +19,14 @@ try:
 except Exception:
     pass
 
+from types import SimpleNamespace
+
 from telegram.error import BadRequest, TimedOut
+from telegram.ext import ApplicationHandlerStop
 
 import bot as bot_module
 import db
+import handlers_admin
 import handlers_user
 import lang
 import router
@@ -461,6 +465,46 @@ async def main() -> int:
     fresh = {m.message_id for m in net.visible()}
     check(good_ids.isdisjoint(fresh), "no message from the failed attempt was left behind")
     check(net.events.count("delete") == len(good_ids), "each stale message was deleted exactly once")
+
+    print("17) an admin can add a product straight from a category")
+    boss = FakeUser(999, "boss", "Boss")
+    net.owner = boss.id
+    target_cat = db.add_category("CapCut", "\U0001f3ac")
+    before = db.count_products(target_cat, active_only=False)
+
+    await router.go(FakeUpdate(boss), ctx3, f"adm:cat:{target_cat}")
+    check(f"adm:cat:new:{target_cat}" in buttons(net.visible()), "the category offers to add a product")
+
+    await handlers_admin._start_product(FakeUpdate(boss, message=FakeMessage(net, boss, "")), ctx3, target_cat)
+    pending = db.get_pending(boss.id) or {}
+    check(pending.get("action") == "product_photo", "the photo step is armed")
+    check(pending.get("category_id") == target_cat, "the chosen category is remembered")
+
+    # The wizard's photo step, then a caption that omits the category column.
+    photo = FakeMessage(net, boss, "")
+    photo.photo = [SimpleNamespace(file_id="PHOTO_1", file_size=1)]
+    try:
+        await handlers_admin.on_admin_photo(FakeUpdate(boss, message=photo), ctx3)
+    except ApplicationHandlerStop:
+        pass  # the wizard deliberately ends the handler chain here
+    check((db.get_pending(boss.id) or {}).get("category_id") == target_cat, "the photo step keeps the category")
+
+    caption = FakeMessage(net, boss, "CapCut Pro 1 Month | 25000 | 10")
+    try:
+        await handlers_admin.on_admin_text(FakeUpdate(boss, message=caption), ctx3)
+    except ApplicationHandlerStop:
+        pass
+    check(db.count_products(target_cat, active_only=False) == before + 1, "the product landed in that category")
+    check(db.get_pending(boss.id) is None, "the wizard closed itself")
+
+    other_cat = db.add_category("Canva", "\U0001f3a8")
+    await router.go(FakeUpdate(boss), ctx3, f"adm:cat:{other_cat}")
+    listed = {r["name"] for r in db.list_products(other_cat, limit=50, active_only=False)}
+    check("CapCut Pro 1 Month" not in listed, "an empty category stays empty")
+    check(
+        all(r["category_id"] == other_cat for r in db.list_products(other_cat, limit=50, active_only=False)),
+        "no other category's products leak in",
+    )
 
     print()
     if FAILURES:

@@ -352,29 +352,41 @@ def list_products(
     active_only: bool = True,
     buyable_first: bool = False,
 ) -> list[sqlite3.Row]:
-    """Products newest-first; `buyable_first` sinks sold-out items to the end."""
-    where = "WHERE is_active = 1" if active_only else ""
-    params: list[Any] = []
-    if category_id is not None:
-        where = f"{where} AND category_id = ?".strip()
-        params.append(category_id)
+    """Products newest-first; `buyable_first` sinks sold-out items to the end.
+
+    The clauses are assembled separately on purpose: stringing `" AND x = ?"`
+    onto an empty base would put the condition on the LEFT JOIN, where a
+    non-matching row still survives — silently returning the whole catalogue.
+    """
+    clauses, params = _product_filters(category_id, active_only)
     order = "ORDER BY (p.stock = 0), p.id DESC" if buyable_first else "ORDER BY p.id DESC"
     params.extend([limit, offset])
     return _rows(
         f"SELECT p.*, c.name AS cat_name, c.emoji AS cat_emoji FROM products p "
-        f"LEFT JOIN categories c ON c.id = p.category_id {where} "
+        f"LEFT JOIN categories c ON c.id = p.category_id {_where(clauses)} "
         f"{order} LIMIT ? OFFSET ?",
         tuple(params),
     )
 
 
-def count_products(category_id: int | None = None, active_only: bool = True) -> int:
-    where = "WHERE is_active = 1" if active_only else ""
-    params: tuple = ()
+def _product_filters(category_id: int | None, active_only: bool) -> tuple[list[str], list[Any]]:
+    clauses: list[str] = []
+    params: list[Any] = []
+    if active_only:
+        clauses.append("p.is_active = 1")
     if category_id is not None:
-        where = f"{where} AND category_id = ?".strip()
-        params = (category_id,)
-    return _one(f"SELECT COUNT(*) AS c FROM products {where}", params)["c"]
+        clauses.append("p.category_id = ?")
+        params.append(category_id)
+    return clauses, params
+
+
+def _where(clauses: list[str]) -> str:
+    return f"WHERE {' AND '.join(clauses)}" if clauses else ""
+
+
+def count_products(category_id: int | None = None, active_only: bool = True) -> int:
+    clauses, params = _product_filters(category_id, active_only)
+    return _one(f"SELECT COUNT(*) AS c FROM products p {_where(clauses)}", tuple(params))["c"]
 
 
 def get_product(product_id: int) -> sqlite3.Row | None:

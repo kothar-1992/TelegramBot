@@ -77,6 +77,34 @@ def main() -> int:
     for target in ["menu:admin", "adm:stats", "adm:orders", "adm:users", "adm:prod:list", "adm:cat:list", f"adm:cat:{cat}"]:
         render(target, target, user_id)
 
+    print("2b) every admin screen is titled for what it actually shows")
+    # Regression: the categories list was headed "Users" and the product list
+    # "Categories", so nobody could tell where they were.
+    heads = {
+        "adm:users": lang.t("admin_users_title"),
+        "adm:cat:list": lang.t("cat_list_title"),
+        "adm:prod:list": lang.t("prod_list_title"),
+        "adm:stats": lang.t("stats_title"),
+    }
+    for target, expected in heads.items():
+        text = views.build(target, user_id)[0].text
+        check(text.startswith(expected.strip()), f"{target} is headed {expected.strip()!r}")
+    for target in ("adm:cat:list", "adm:prod:list"):
+        text = views.build(target, user_id)[0].text
+        wrong = [h for t, h in heads.items() if t != target and h.strip() == text.strip()]
+        check(not wrong, f"{target} does not reuse another screen's heading")
+
+    print("2c) a category screen offers a way forward")
+    empty_cat = db.add_category("Nothing Here", "🈳")
+    flat = [b for row in views.build(f"adm:cat:{empty_cat}", user_id)[0].keyboard.inline_keyboard for b in row]
+    datas = [b.callback_data for b in flat]
+    check(f"adm:cat:new:{empty_cat}" in datas, "an empty category offers to add its first product")
+    check(f"adm:cat:del:{empty_cat}" in datas, "an empty category can still be deleted")
+    check("adm:cat:list" in datas, "there is a way back to the category list")
+    check(all(r["category_id"] == cat for r in db.list_products(cat, limit=50, active_only=False)),
+          "the filled category lists only its own products")
+    db.delete_category(empty_cat)
+
     print("3) caption parser")
     from handlers_admin import parse_caption
 
@@ -93,6 +121,40 @@ def main() -> int:
     check(limited is not None and limited[4] == 7, "parser: optional stock field")
     check(parse_caption("name | abc") is None, "parser: rejects non-numeric price")
     check(parse_caption("name | 100 | 1 | many") is None, "parser: rejects non-numeric stock")
+
+    print("3b) a category filter is never silently dropped")
+    # Regression: `" AND category_id = ?"` appended to an empty base landed on
+    # the LEFT JOIN, so `active_only=False` returned the whole catalogue.
+    other = db.add_category("Gemini", "✨")
+    baseline_live = db.count_products(cat)
+    baseline_all = db.count_products(cat, active_only=False)
+    db.add_product("Gemini Pro", 60_000, category_id=other)
+    hidden_id = db.add_product("Hidden ChatGPT", 1_000, category_id=cat)
+    db.set_product_active(hidden_id, False)
+
+    for label, kwargs in (("live", {}), ("all", {"active_only": False})):
+        listed = db.list_products(cat, limit=50, **kwargs)
+        check(
+            all(r["category_id"] == cat for r in listed),
+            f"list_products({label}) only returns that category",
+        )
+        check(
+            all(r["name"] != "Gemini Pro" for r in listed),
+            f"list_products({label}) excludes the other category",
+        )
+    check(
+        len(db.list_products(cat, limit=50, active_only=False)) == baseline_all + 1,
+        "hidden products are included",
+    )
+    check(len(db.list_products(cat, limit=50)) == baseline_live, "hidden products are excluded by default")
+    check(db.count_products(cat, active_only=False) == baseline_all + 1, "count_products matches list_products")
+    check(db.count_products(cat) == baseline_live, "count_products honours active_only")
+    check(
+        db.count_products(active_only=False) == len(db.list_products(None, limit=999, active_only=False)),
+        "counting everything matches listing everything",
+    )
+    db.delete_product(hidden_id)
+    db.delete_category(other)
 
     print("4) navigation trail")
     db.push_trail(user_id, "menu:catalog")

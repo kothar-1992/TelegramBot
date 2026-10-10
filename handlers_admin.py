@@ -206,6 +206,20 @@ async def cmd_id(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     )
 
 
+def _category_saved(message, cat_id: int, emoji: str, name: str) -> None:
+    """Confirm a new category and offer to fill it straight away."""
+    message.reply_text(
+        t("addcat_saved", id=cat_id, emoji=emoji, name=esc(name)),
+        parse_mode=ParseMode.HTML,
+        reply_markup=InlineKeyboardMarkup(
+            [
+                [InlineKeyboardButton(t("admin_prod_new"), callback_data=f"adm:cat:new:{cat_id}")],
+                [InlineKeyboardButton(t("back"), callback_data="adm:cat:list")],
+            ]
+        ),
+    )
+
+
 async def cmd_addcat(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     """`/addcat 💰 Wallet` — emoji is optional."""
     raw = " ".join(update.message.text.split()[1:]).strip()
@@ -221,7 +235,7 @@ async def cmd_addcat(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None
         emoji, name = "📦", raw
 
     cat_id = db.add_category(name, emoji)
-    await update.message.reply_text(t("addcat_saved", id=cat_id, emoji=emoji, name=esc(name)), parse_mode=ParseMode.HTML)
+    _category_saved(update.message, cat_id, emoji, name)
 
 
 async def cmd_cats(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -244,8 +258,21 @@ async def cmd_delcat(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None
 
 
 async def cmd_addproduct(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    db.set_pending(update.effective_user.id, {"action": "product_photo"})
-    await update.message.reply_text(t("addproduct_prompt"), parse_mode=ParseMode.HTML)
+    await _start_product(update, context, None)
+
+
+async def _start_product(update: Update, context: ContextTypes.DEFAULT_TYPE, category_id: int | None) -> None:
+    """Begin the photo → caption wizard, optionally locked to one category."""
+    pending: dict = {"action": "product_photo"}
+    if category_id is not None:
+        pending["category_id"] = category_id
+
+    db.set_pending(update.effective_user.id, pending)
+    cat = db.get_category(category_id) if category_id else None
+    await update.message.reply_text(
+        t("addproduct_prompt_into", category=f"{cat['emoji']} {esc(cat['name'])}") if cat else t("addproduct_prompt"),
+        parse_mode=ParseMode.HTML,
+    )
 
 
 def parse_caption(caption: str) -> tuple[str, int, int | None, str, int] | None:
@@ -454,7 +481,9 @@ async def on_admin_photo(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
         raise ApplicationHandlerStop
 
     if action == "product_photo":
-        db.set_pending(update.effective_user.id, {"action": "product_caption", "photo_id": file_id})
+        pending = dict(pending)
+        pending.update({"action": "product_caption", "photo_id": file_id})
+        db.set_pending(update.effective_user.id, pending)
         await update.message.reply_text(t("addproduct_caption_prompt"), parse_mode=ParseMode.HTML)
         raise ApplicationHandlerStop
 
@@ -483,6 +512,9 @@ async def on_admin_text(update: Update, context: ContextTypes.DEFAULT_TYPE) -> N
             await update.message.reply_text(t("addproduct_bad_caption"))
             return
         name, price, category_id, description, stock = parsed
+        # A product started from a category keeps it, unless the caption names another.
+        if category_id is None:
+            category_id = pending.get("category_id")
         product_id = db.add_product(
             name=name,
             price=price,
@@ -513,9 +545,7 @@ async def on_admin_text(update: Update, context: ContextTypes.DEFAULT_TYPE) -> N
             await update.message.reply_text(t("not_found"))
             return
         cat_id = db.add_category(text, "📦")
-        await update.message.reply_text(
-            t("addcat_saved", id=cat_id, emoji="📦", name=esc(text)), parse_mode=ParseMode.HTML
-        )
+        _category_saved(update.message, cat_id, "📦", text)
         raise ApplicationHandlerStop
 
     if action == "broadcast":
@@ -536,6 +566,10 @@ async def on_admin_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) 
     head = parts[1] if len(parts) > 1 else ""
 
     if head == "cat" and len(parts) >= 3 and parts[2] == "new":
+        # `adm:cat:new` asks for a category, `adm:cat:new:<id>` fills one in.
+        if len(parts) >= 4 and parts[3].isdigit():
+            await _start_product(update, context, int(parts[3]))
+            return
         db.set_pending(query.from_user.id, {"action": "category_name"})
         await query.message.reply_text(t("addcat_prompt"))
         return

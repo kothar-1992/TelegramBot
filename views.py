@@ -488,7 +488,7 @@ def _build_admin(parts: list[str], user_id: int) -> list[Part]:
         cats = db.list_categories()
         if not cats:
             return [Part(text=t("cat_none"), keyboard=kb.simple([[kb._btn(t("back"), "menu:admin")]]))]
-        return [Part(text=t("admin_users_title"), keyboard=kb.admin_category_list(cats))]
+        return [Part(text=t("cat_list_title"), keyboard=kb.admin_category_list(cats))]
     if len(parts) >= 3 and parts[1] == "cat" and parts[2].isdigit():
         return admin_category_screen(int(parts[2]))
     return admin_panel_screen()
@@ -501,16 +501,47 @@ def admin_product_screen(page: int) -> list[Part]:
     page = max(0, min(page, pages - 1))
     rows = db.list_products(None, offset=page * per_page, limit=per_page, active_only=False)
     if not rows:
-        return [Part(text=t("prod_none"), keyboard=kb.simple([[kb._btn(t("back"), "menu:admin")]]))]
-    return [Part(text=t("admin_cat_list"), keyboard=kb.admin_product_list(rows, page, pages))]
+        return [
+            Part(
+                text=t("prod_none"),
+                keyboard=kb.simple([[kb._btn(t("admin_prod_new"), "adm:cat:new")], [kb._btn(t("back"), "menu:admin")]]),
+            )
+        ]
+    return [Part(text=t("prod_list_title"), keyboard=kb.admin_product_list(rows, page, pages))]
 
 
 def admin_category_screen(cat_id: int) -> list[Part]:
+    """The admin's view of one category: its products, plus add and delete."""
     cat = db.get_category(cat_id)
     if cat is None:
         return [Part(text=t("not_found"), keyboard=kb.simple([[kb._btn(t("back"), "menu:admin")]]))]
-    text = f"{cat['emoji']} <b>{esc(cat['name'])}</b>  (id: {cat['id']})"
-    keyboard = kb.simple(
-        [[kb._btn("🗑", f"adm:cat:del:{cat_id}")], [kb._btn(t("back"), "adm:cat:list")]]
+
+    rows = db.list_products(cat_id, limit=20, active_only=False)
+    active = sum(1 for r in rows if r["is_active"])
+
+    if not rows:
+        return [
+            Part(
+                text=t("adm_cat_empty", emoji=cat["emoji"], name=esc(cat["name"]), id=cat["id"]),
+                keyboard=kb.simple(
+                    [
+                        [kb._btn(t("admin_prod_new"), f"adm:cat:new:{cat_id}")],
+                        [kb._btn(t("cat_del_btn"), f"adm:cat:del:{cat_id}")],
+                        [kb._btn(t("back"), "adm:cat:list")],
+                    ]
+                ),
+            )
+        ]
+
+    keyboard = [[kb._btn(kb.admin_product_label(p), f"adm:prod:{p['id']}")] for p in rows]
+    keyboard.append([kb._btn(t("admin_prod_new"), f"adm:cat:new:{cat_id}")])
+    keyboard.append([kb._btn(t("cat_del_btn"), f"adm:cat:del:{cat_id}"), kb._btn(t("back"), "adm:cat:list")])
+    text = t(
+        "adm_cat_header",
+        emoji=cat["emoji"],
+        name=esc(cat["name"]),
+        id=cat["id"],
+        total=len(rows),
+        active=active,
     )
-    return [Part(text=text, keyboard=keyboard)]
+    return [Part(text=text, keyboard=kb.simple(keyboard))]

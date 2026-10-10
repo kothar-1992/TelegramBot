@@ -146,6 +146,21 @@ Bot တစ်ခုလုံးမှာ KBZPay / AYAPAY / CBPAY / Binance Pay /
 `🛍 ထုတ်ကုန်များ` Main Menu ထဲမှာ **🛠 Admin Panel** ခလုပ်က ဖြတ်လို့လည်းရ — button အသစ်တွေနဲ့
 ထုတ်ကုန်/အော်ဒါ/လက်ကောင်း စီမံခြင်း၊
 
+### 🗂 Category ထဲကနေ ထုတ်ကုန် ထည့်တိုင်း
+
+```
+🛠 Admin Panel → 🗂 Categories → (category တစ်ခု)
+  ├─ [➕ Add product]     ← အဲဒီ category ထဲသို့ တိုက်ရိုက်သွားမယ်
+  ├─ [🟢 ထုတ်ကုန်တစ်ခု]      ← ဖွင့်/ပိတ်၊ ဖျက်
+  ├─ [🗑 Delete]           ← category ဖျက်
+  └─ [⬅️ Back]
+```
+
+- **Category အလိုအလျောက် ပါသွားပါတယ်** — caption မှာ category ကို မရေးခဲ့ရင် အဲဒီ category ထဲသို့ပဲ သွားမယ်။
+  Caption မှာ အခြား category ရိုက်ထည့်ရင် အဲဒါကိုပဲ သုံးမယ်။
+- Category အလွတ်ဖြစ်နေရင် `➕ Add product` က ပထမဆုံးထုတ်ကုန်အတွက် အသုံးဝင်ပါတယ်။
+- `/addcat` နဲ့ category အသစ်ထည့်ပြီးတာနေရင် bot က **အဲဒီ category ထဲသို့ ပို့ပေးတဲ့ link** ပေးပါမယ်။
+
 ---
 
 ## 4. User ဘက် အသုံးပြုပုံ
