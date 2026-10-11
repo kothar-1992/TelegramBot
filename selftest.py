@@ -52,6 +52,40 @@ def render(label: str, target: str, user_id: int) -> list[views.Part]:
     return parts
 
 
+#: Every coroutine-returning Telegram/httpx method the bot calls.  Calling one
+#: of these without `await` produces no error and sends nothing at all.
+ASYNC_METHODS = {
+    "answer", "delete_message", "download_to_drive", "edit_message_caption", "edit_message_text",
+    "edit_text", "get_chat", "get_file", "get_me", "reply_caption", "reply_photo", "reply_text",
+    "send_document", "send_message", "send_photo", "set_my_description",
+}
+
+#: Only the runtime modules — the test files define these methods themselves.
+SCANNED = (
+    "backup.py", "bot.py", "config.py", "db.py", "handlers_admin.py", "handlers_user.py",
+    "health.py", "keyboards.py", "lang.py", "router.py", "uploads.py", "views.py",
+)
+
+
+def un_awaited_telegram_calls(root: Path | None = None) -> dict[str, list[str]]:
+    """Find calls to a Telegram API method whose result is never awaited."""
+    import ast
+
+    root = root or Path(__file__).resolve().parent
+    problems: dict[str, list[str]] = {}
+    for filename in SCANNED:
+        path = root / filename
+        tree = ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
+        awaited = {id(node.value) for node in ast.walk(tree) if isinstance(node, ast.Await)}
+        for node in ast.walk(tree):
+            if not isinstance(node, ast.Call) or id(node) in awaited:
+                continue
+            func = node.func
+            if isinstance(func, ast.Attribute) and func.attr in ASYNC_METHODS:
+                problems.setdefault(filename, []).append(f"line {node.lineno}: {func.attr}()")
+    return problems
+
+
 def main() -> int:
     tmp = Path(tempfile.mkdtemp()) / "selftest.db"
     db.init(tmp)
@@ -104,6 +138,16 @@ def main() -> int:
     check(all(r["category_id"] == cat for r in db.list_products(cat, limit=50, active_only=False)),
           "the filled category lists only its own products")
     db.delete_category(empty_cat)
+
+    print("2d) no coroutine is ever created and thrown away")
+    # Regression: `_prompt_category` called `message.reply_text(...)` without
+    # awaiting, so the "New category" button did nothing at all.  A silent
+    # no-op is exactly what a mistyped await looks like from the outside.
+    leaked = un_awaited_telegram_calls()
+    for name, spots in leaked.items():
+        for spot in spots:
+            check(False, f"{name}: {spot} is never awaited")
+    check(not leaked, f"every Telegram API call is awaited ({len(leaked)} file(s) with problems)")
 
     print("3) caption parser")
     from handlers_admin import parse_caption, split_emoji

@@ -269,9 +269,9 @@ def _category_buttons(cat_id: int) -> InlineKeyboardMarkup:
     )
 
 
-def _category_saved(message, cat_id: int, emoji: str, name: str) -> None:
+async def _category_saved(message, cat_id: int, emoji: str, name: str) -> None:
     """Confirm a new category and offer to fill it straight away."""
-    message.reply_text(
+    await message.reply_text(
         t("addcat_saved", id=cat_id, emoji=emoji, name=esc(name)),
         parse_mode=ParseMode.HTML,
         reply_markup=InlineKeyboardMarkup(
@@ -299,9 +299,14 @@ def split_emoji(raw: str, default: str = "📦") -> tuple[str, str]:
     return default, stripped
 
 
-def _prompt_category(update: Update, emoji: str = "📦") -> None:
-    """Show exactly what a category line looks like, with a way out."""
-    update.message.reply_text(
+async def _prompt_category(message, emoji: str = "📦") -> None:
+    """Show exactly what a category line looks like, with a way out.
+
+    Takes the Message itself rather than the Update: this is reached from both
+    a command and a button, and `update.message` only resolves to the right
+    thing for one of them.
+    """
+    await message.reply_text(
         t("addcat_prompt", emoji=emoji),
         parse_mode=ParseMode.HTML,
         reply_markup=InlineKeyboardMarkup(
@@ -315,7 +320,7 @@ async def cmd_addcat(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None
     raw = " ".join(update.message.text.split()[1:]).strip()
     if not raw:
         db.set_pending(update.effective_user.id, {"action": "category_name", "emoji": "📦"})
-        _prompt_category(update)
+        await _prompt_category(update.message)
         return
 
     emoji, name = split_emoji(raw)
@@ -326,7 +331,7 @@ async def cmd_addcat(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None
         return
 
     cat_id = db.add_category(name, emoji)
-    _category_saved(update.message, cat_id, emoji, name)
+    await _category_saved(update.message, cat_id, emoji, name)
 
 
 async def cmd_cats(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -682,7 +687,7 @@ async def on_admin_text(update: Update, context: ContextTypes.DEFAULT_TYPE) -> N
             await update.message.reply_text(t("not_found"))
             return
         cat_id = db.add_category(text, emoji)
-        _category_saved(update.message, cat_id, emoji, text)
+        await _category_saved(update.message, cat_id, emoji, text)
         raise ApplicationHandlerStop
 
     if action == "broadcast":
@@ -708,7 +713,7 @@ async def on_admin_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) 
             await _start_product(update, context, int(parts[3]))
             return
         db.set_pending(query.from_user.id, {"action": "category_name", "emoji": "📦"})
-        _prompt_category(update)
+        await _prompt_category(query.message)
         return
 
     if head == "banner":

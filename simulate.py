@@ -185,7 +185,9 @@ class FakeUpdate:
 
     @property
     def message(self):
-        return self.effective_message
+        # PTB resolves `update.message` to the callback's message, so the fakes
+        # have to do the same or handler bugs hide from the tests.
+        return self.effective_message or (self.callback_query.message if self.callback_query else None)
 
 
 # --------------------------------------------------------------------------- #
@@ -505,6 +507,33 @@ async def main() -> int:
         all(r["category_id"] == other_cat for r in db.list_products(other_cat, limit=50, active_only=False)),
         "no other category's products leak in",
     )
+
+    print("18) the New Category button actually replies")
+    made: list[str] = []
+
+    class Recorder(FakeMessage):
+        async def reply_text(self, text, **kw):
+            made.append(text)
+            made.extend(b.callback_data for r in getattr(kw.get("reply_markup"), "inline_keyboard", []) for b in r)
+            return self
+
+    net.owner = boss.id
+    ask = Recorder(net, boss, "")
+    await handlers_admin.on_admin_callback(
+        FakeUpdate(boss, callback_query=FakeCallbackQuery(net, boss, "adm:cat:new", ask)), ctx3
+    )
+    check(any("New category" in m or "Category အသစ်" in m for m in made), "the button sends the format prompt")
+    check("menu:admin" in made, "the prompt offers a way out")
+    check((db.get_pending(boss.id) or {}).get("action") == "category_name", "the wizard is armed")
+
+    typed = Recorder(net, boss, "Midjourney")
+    try:
+        await handlers_admin.on_admin_text(FakeUpdate(boss, message=typed), ctx3)
+    except ApplicationHandlerStop:
+        pass
+    check(any(r["name"] == "Midjourney" for r in db.list_categories()), "the typed name became a category")
+    check(any("adm:cat:new:" in m for m in made), "the confirmation links into the new category")
+    check(db.get_pending(boss.id) is None, "the wizard closed itself")
 
     print()
     if FAILURES:
