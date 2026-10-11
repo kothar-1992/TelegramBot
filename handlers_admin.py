@@ -25,7 +25,7 @@ import router
 import views
 from config import settings
 from lang import t
-from views import esc, money
+from views import esc, money, money_balance
 
 log = logging.getLogger(__name__)
 
@@ -193,7 +193,7 @@ async def cmd_demo(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
             "demo_done",
             cats=len(cat_ids),
             products=len(product_ids),
-            balance=money(db.get_balance(admin_id)),
+            balance=money_balance(db.get_balance(admin_id)),
             note=note,
             summary=summary,
         ),
@@ -468,8 +468,8 @@ async def cmd_give(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         await update.message.reply_text(t("err_user_not_found"))
         return
     new_balance = db.change_balance(user_id, amount)
-    await update.message.reply_text(t("give_done", user_id=user_id, balance=money(new_balance)), parse_mode=ParseMode.HTML)
-    await _safe_notify(context, user_id, t("give_notify", balance=money(new_balance)))
+    await update.message.reply_text(t("give_done", user_id=user_id, balance=money_balance(new_balance)), parse_mode=ParseMode.HTML)
+    await _safe_notify(context, user_id, t("give_notify", balance=money_balance(new_balance)))
 
 
 async def cmd_balance(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -487,7 +487,7 @@ async def cmd_balance(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
             name=esc(row["full_name"] or "—"),
             user_id=row["user_id"],
             handle=esc(row["username"] or "—"),
-            balance=money(row["balance"]),
+            balance=money_balance(row["balance"]),
             orders=len(db.user_orders(row["user_id"], limit=5)),
         ),
         parse_mode=ParseMode.HTML,
@@ -775,22 +775,8 @@ async def cmd_setbanner_from_query(update: Update, context: ContextTypes.DEFAULT
     await query.answer(t("banner_sent"), show_alert=True)
 
 
-async def _user_card(update: Update, context: ContextTypes.DEFAULT_TYPE, user_id: int) -> None:
-    query = update.callback_query
-    row = db.get_user(user_id)
-    if row is None:
-        await query.answer(t("err_user_not_found"), show_alert=True)
-        return
-    orders = db.user_orders(user_id, limit=5)
-    text = t(
-        "admin_user_card",
-        name=esc(row["full_name"] or "—"),
-        user_id=row["user_id"],
-        handle=esc(row["username"] or "—"),
-        balance=money(row["balance"]),
-        orders=len(orders),
-    )
-    keyboard = [
+def _user_card_markup(user_id: int) -> list[list[InlineKeyboardButton]]:
+    return [
         [
             InlineKeyboardButton("+10,000", callback_data=f"adm:user:add:{user_id}:10000"),
             InlineKeyboardButton("+50,000", callback_data=f"adm:user:add:{user_id}:50000"),
@@ -801,15 +787,55 @@ async def _user_card(update: Update, context: ContextTypes.DEFAULT_TYPE, user_id
             InlineKeyboardButton(t("admin_zero"), callback_data=f"adm:user:zero:{user_id}"),
         ],
     ]
-    await query.message.reply_text(text, reply_markup=InlineKeyboardMarkup(keyboard), parse_mode=ParseMode.HTML)
+
+
+def _user_card_body(row) -> str:
+    orders = db.user_orders(row["user_id"], limit=5)
+    return t(
+        "admin_user_card",
+        name=esc(row["full_name"] or "—"),
+        user_id=row["user_id"],
+        handle=esc(row["username"] or "—"),
+        balance=money_balance(row["balance"]),
+        orders=len(orders),
+    )
+
+
+async def _repaint_user_card(query, user_id: int) -> None:
+    """Rewrite the admin's user card in place so balance edits show up at once."""
+    row = db.get_user(user_id)
+    if row is None:
+        return
+    try:
+        await query.edit_message_text(
+            _user_card_body(row),
+            reply_markup=InlineKeyboardMarkup(_user_card_markup(user_id)),
+            parse_mode=ParseMode.HTML,
+        )
+    except TelegramError:
+        log.debug("Could not repaint the user card for %s", user_id, exc_info=True)
+
+
+async def _user_card(update: Update, context: ContextTypes.DEFAULT_TYPE, user_id: int) -> None:
+    query = update.callback_query
+    row = db.get_user(user_id)
+    if row is None:
+        await query.answer(t("err_user_not_found"), show_alert=True)
+        return
+    await query.message.reply_text(
+        _user_card_body(row),
+        reply_markup=InlineKeyboardMarkup(_user_card_markup(user_id)),
+        parse_mode=ParseMode.HTML,
+    )
 
 
 async def _quick_add(update: Update, context: ContextTypes.DEFAULT_TYPE, user_id: int, amount: int) -> None:
     query = update.callback_query
     new_balance = db.change_balance(user_id, amount)
-    await query.answer(f"✅ {money(amount)} → {money(new_balance)}", show_alert=True)
+    await query.answer(f"✅ {money_balance(amount)} → {money_balance(new_balance)}", show_alert=True)
     verb = f"💰 {t('add_note')}" if amount > 0 else f"💸 {t('add_note_sub')}"
-    await _safe_notify(context, user_id, t("quick_add_notify", verb=verb, balance=money(new_balance)))
+    await _safe_notify(context, user_id, t("quick_add_notify", verb=verb, balance=money_balance(new_balance)))
+    await _repaint_user_card(query, user_id)
 
 
 async def _zero_balance(update: Update, context: ContextTypes.DEFAULT_TYPE, user_id: int) -> None:
@@ -817,7 +843,8 @@ async def _zero_balance(update: Update, context: ContextTypes.DEFAULT_TYPE, user
     current = db.get_balance(user_id)
     db.change_balance(user_id, -current)
     await query.answer(t("admin_zero"), show_alert=True)
-    await _safe_notify(context, user_id, t("zero_notify", balance=money(db.get_balance(user_id))))
+    await _safe_notify(context, user_id, t("zero_notify", balance=money_balance(db.get_balance(user_id))))
+    await _repaint_user_card(query, user_id)
 
 
 async def _safe_notify(
@@ -920,7 +947,7 @@ async def _order_action(update: Update, context: ContextTypes.DEFAULT_TYPE, acti
         new_balance = db.change_balance(order["user_id"], order["total"])
 
         def body() -> str:
-            return t("order_refund", id=order_id, total=money(order["total"]), balance=money(new_balance))
+            return t("order_refund", id=order_id, total=money(order["total"]), balance=money_balance(new_balance))
 
         markup = None
     elif action == "done":
@@ -960,7 +987,7 @@ async def _topup_action(update: Update, context: ContextTypes.DEFAULT_TYPE, requ
                 [
                     t("approve_title", id=request_id),
                     t("approve_amount", amount=money(amount)),
-                    t("approve_balance", balance=money(new_balance)),
+                    t("approve_balance", balance=money_balance(new_balance)),
                 ]
             )
 

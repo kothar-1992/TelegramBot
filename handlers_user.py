@@ -24,7 +24,7 @@ import views
 from config import is_admin, settings
 from keyboards import MAIN
 from lang import t
-from views import esc, money
+from views import esc, money, money_balance
 
 log = logging.getLogger(__name__)
 BASE_DIR = Path(__file__).resolve().parent
@@ -285,7 +285,7 @@ async def on_order_confirm(update: Update, context: ContextTypes.DEFAULT_TYPE) -
             name=esc(product["name"]),
             qty=qty,
             total=money(total),
-            balance=money(new_balance),
+            balance=money_balance(new_balance),
         ),
         language=saved_language(user_id),
     )

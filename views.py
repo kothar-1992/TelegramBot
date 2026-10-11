@@ -38,6 +38,11 @@ def money(amount: int) -> str:
     return f"{int(amount):,} {settings.currency}" if int(amount) > 0 else t("price_tbd")
 
 
+def money_balance(amount: int) -> str:
+    """Balances and revenue: zero is a real value, never "price on request"."""
+    return f"{int(amount):,} {settings.currency}"
+
+
 def esc(text: str | None) -> str:
     return html.escape(str(text or ""), quote=False)
 
@@ -60,7 +65,7 @@ def main(user_id: int) -> list[Part]:
     banner = db.get_setting("banner_photo")
     shop = esc(settings.shop_name)
     welcome = settings.welcome_text.format(shop=shop) if settings.welcome_text else t("welcome", shop=shop)
-    balance_line = t("balance_line", balance=money(db.get_balance(user_id)))
+    balance_line = t("balance_line", balance=money_balance(db.get_balance(user_id)))
     menu_kb = kb.main_menu(is_admin=is_admin(user_id))
     menu_btn = kb.menu_reply_keyboard() if settings.menu_button else None
 
@@ -193,7 +198,7 @@ def confirm_screen(product_id: int, qty: int, user_id: int) -> list[Part]:
         t("confirm_qty", qty=qty),
         t("confirm_total", total=money(total)),
         "",
-        t("confirm_wallet", balance=money(balance)),
+        t("confirm_wallet", balance=money_balance(balance)),
     ]
     if short:
         text.append(t("confirm_short", short=money(short)))
@@ -246,7 +251,7 @@ def topup_review(request_id: int, balance: int) -> list[Part]:
         t("review_title"),
         t("review_ref", id=r["id"], extra=extra),
         t("review_amount", amount=money(r["amount"])),
-        t("review_balance", balance=money(balance)),
+        t("review_balance", balance=money_balance(balance)),
         t("status", status=t(f"review_{r['status']}", default=r["status"])),
     ]
     if r["status"] == "pending":
@@ -293,7 +298,7 @@ def balance_screen(user_id: int) -> list[Part]:
             t("balance_name", name=name),
             t("balance_id", user_id=user_id),
             t("balance_handle", handle=handle),
-            t("balance_amount", balance=money(db.get_balance(user_id))),
+            t("balance_amount", balance=money_balance(db.get_balance(user_id))),
         ]
     )
     keyboard = [[kb._btn(t("menu_topup"), "menu:topup")]]
@@ -371,7 +376,7 @@ def admin_stats_screen() -> list[Part]:
             t("stats_cats", cats=len(db.list_categories())),
             t("stats_products", active=active, hidden=total - active),
             t("stats_orders", orders=db.order_count()),
-            t("stats_revenue", revenue=money(revenue)),
+            t("stats_revenue", revenue=money_balance(revenue)),
         ]
     )
     return [Part(text=text, keyboard=kb.simple([[kb._btn(t("back"), "menu:admin")]]))]
@@ -421,7 +426,7 @@ def admin_users_screen() -> list[Part]:
     lines = [t("admin_users_title")]
     buttons = []
     for u in rows:
-        lines.append(f"<code>{u['user_id']}</code> · {esc(u['full_name'] or '—')} · {money(u['balance'])}")
+        lines.append(f"<code>{u['user_id']}</code> · {esc(u['full_name'] or '—')} · {money_balance(u['balance'])}")
         buttons.append([kb._btn(f"{u['full_name'] or u['user_id']}", f"adm:user:{u['user_id']}")])
     buttons.append([kb._btn(t("back"), "menu:admin")])
     return [Part(text="\n".join(lines), keyboard=kb.simple(buttons))]
