@@ -283,19 +283,47 @@ def _category_saved(message, cat_id: int, emoji: str, name: str) -> None:
     )
 
 
+def split_emoji(raw: str, default: str = "📦") -> tuple[str, str]:
+    """`🎬 CapCut` -> ('🎬', 'CapCut'), `CapCut` -> ('📦', 'CapCut').
+
+    An emoji is any first token of one to three non-alphanumeric characters,
+    so `💰 Wallet` works but `Top Up` and `3D` keep their names whole.  A bare
+    emoji comes back as `(emoji, "")` so the caller can ask for the name.
+    """
+    stripped = raw.strip()
+    head, sep, tail = stripped.partition(" ")
+    if sep and len(head) <= 3 and not head.isalnum() and tail.strip():
+        return head, tail.strip()
+    if not sep and len(stripped) <= 3 and stripped and not stripped.isalnum():
+        return stripped, ""
+    return default, stripped
+
+
+def _prompt_category(update: Update, emoji: str = "📦") -> None:
+    """Show exactly what a category line looks like, with a way out."""
+    update.message.reply_text(
+        t("addcat_prompt", emoji=emoji),
+        parse_mode=ParseMode.HTML,
+        reply_markup=InlineKeyboardMarkup(
+            [[InlineKeyboardButton(t("cancel"), callback_data="menu:admin")]]
+        ),
+    )
+
+
 async def cmd_addcat(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    """`/addcat 💰 Wallet` — emoji is optional."""
+    """`/addcat 💰 Wallet` — the emoji is optional, the name is not."""
     raw = " ".join(update.message.text.split()[1:]).strip()
     if not raw:
-        db.set_pending(update.effective_user.id, {"action": "category_name"})
-        await update.message.reply_text(t("addcat_prompt"))
+        db.set_pending(update.effective_user.id, {"action": "category_name", "emoji": "📦"})
+        _prompt_category(update)
         return
 
-    parts = raw.split(maxsplit=1)
-    if len(parts) == 2 and len(parts[0]) <= 3 and not parts[0].isalnum():
-        emoji, name = parts[0], parts[1].strip()
-    else:
-        emoji, name = "📦", raw
+    emoji, name = split_emoji(raw)
+    if not name:
+        # `/addcat 💰` on its own — keep the emoji and ask for the name.
+        db.set_pending(update.effective_user.id, {"action": "category_name", "emoji": emoji})
+        await update.message.reply_text(t("addcat_need_name", emoji=emoji), parse_mode=ParseMode.HTML)
+        return
 
     cat_id = db.add_category(name, emoji)
     _category_saved(update.message, cat_id, emoji, name)
@@ -648,12 +676,13 @@ async def on_admin_text(update: Update, context: ContextTypes.DEFAULT_TYPE) -> N
         raise ApplicationHandlerStop
 
     if action == "category_name":
+        emoji = pending.get("emoji") or "📦"
         db.set_pending(update.effective_user.id, None)
         if not text:
             await update.message.reply_text(t("not_found"))
             return
-        cat_id = db.add_category(text, "📦")
-        _category_saved(update.message, cat_id, "📦", text)
+        cat_id = db.add_category(text, emoji)
+        _category_saved(update.message, cat_id, emoji, text)
         raise ApplicationHandlerStop
 
     if action == "broadcast":
@@ -678,8 +707,8 @@ async def on_admin_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) 
         if len(parts) >= 4 and parts[3].isdigit():
             await _start_product(update, context, int(parts[3]))
             return
-        db.set_pending(query.from_user.id, {"action": "category_name"})
-        await query.message.reply_text(t("addcat_prompt"))
+        db.set_pending(query.from_user.id, {"action": "category_name", "emoji": "📦"})
+        _prompt_category(update)
         return
 
     if head == "banner":

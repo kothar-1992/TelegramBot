@@ -106,7 +106,7 @@ def main() -> int:
     db.delete_category(empty_cat)
 
     print("3) caption parser")
-    from handlers_admin import parse_caption
+    from handlers_admin import parse_caption, split_emoji
 
     parsed = parse_caption("USDT TRC20 | 65,000 | USDT\nFast delivery.\n24/7 support")
     check(parsed is not None, "parser: valid caption accepted")
@@ -121,6 +121,18 @@ def main() -> int:
     check(limited is not None and limited[4] == 7, "parser: optional stock field")
     check(parse_caption("name | abc") is None, "parser: rejects non-numeric price")
     check(parse_caption("name | 100 | 1 | many") is None, "parser: rejects non-numeric stock")
+
+    print("3a) /addcat accepts what people actually type")
+    for raw, expected in [
+        ("\U0001f3ac CapCut", ("\U0001f3ac", "CapCut")),
+        ("CapCut", ("\U0001f4e6", "CapCut")),
+        ("Top Up", ("\U0001f4e6", "Top Up")),
+        ("3D Models", ("\U0001f4e6", "3D Models")),
+        ("  \U0001f4b0   USDT  ", ("\U0001f4b0", "USDT")),
+    ]:
+        check(split_emoji(raw) == expected, f"/addcat {raw.strip()!r} -> {expected[1]!r}")
+    check(split_emoji("\U0001f4b0") == ("\U0001f4b0", ""), "a bare emoji asks for the name instead of becoming one")
+    check(split_emoji("") == ("\U0001f4e6", ""), "empty input asks for a name")
 
     print("3b) a category filter is never silently dropped")
     # Regression: `" AND category_id = ?"` appended to an empty base landed on

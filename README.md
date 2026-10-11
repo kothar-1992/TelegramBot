@@ -84,10 +84,16 @@ PROXY=http://127.0.0.1:10808
 
 ### Category ထည့်ခြင်း
 ```
-/addcat 💰 USDT
-/addcat 🎫 Account
-/cats              ← စာရင်းကြည့်ခြင်း
+/addcat CapCut            → 📦 CapCut   (emoji မလိုချင်ရင်)
+/addcat 🎬 CapCut         → 🎬 CapCut
+/addcat                   → bot က အောက်ပါလို့ မေးမြန်းပေးမယ်
+/cats                    ← စာရင်းကြည့်ခြင်း
 ```
+
+- **Emoji က အရောင်ပါ** — customer တွေ မြင်တဲ့ category ခလုပ်တွေရဲ့ ဦးဆုံးစာလုံးပါ။
+  ဥပမာ — `💰 USDT`၊ `🤖 ChatGPT`၊ `🎬 CapCut`၊ `🎨 Adobe`
+- `/addcat 💰` လို့ emoji တစ်ခုတည်းပဲ ရိုက်ရင် အမည် ထပ်မေးပေးမယ်
+- အမည်ထဲမှာ space ပါလို့ရပါတယ် (`/addcat Top Up`)
 
 ### ထုတ်ကုန် (ပုံ + caption) ထည့်ခြင်း
 1. `/addproduct` လို့ ပို့ပါ

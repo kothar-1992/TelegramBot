@@ -257,7 +257,12 @@ EN: dict[str, str] = {
     "<code>Name | Price | Stock | Warranty | Tutorial</code>\n\n"
     "The category is already set, so leave it out of the caption.",
     "addproduct_bad_caption": "⚠️ Bad caption — use <code>Name | Price</code> to start.",
-    "addcat_prompt": "🗂 Type the category name.",
+    "addcat_prompt": "🗂 <b>New category</b>\n\n"
+    "Send the name. An emoji in front is optional:\n\n"
+    "<code>/addcat CapCut</code>      → {emoji} CapCut\n"
+    "<code>/addcat \U0001f3ac CapCut</code>   → \U0001f3ac CapCut\n\n"
+    "The emoji is what colours the buttons customers see.",
+    "addcat_need_name": "{emoji} Got it — now send just the <b>name</b> for this category.",
     "addcat_saved": "✅ Category saved — <code>{id}</code> · {emoji} {name}",
     "delcat_usage": "⚠️ Use <code>/delcat &lt;id&gt;</code>.",
     "delproduct_usage": "⚠️ Use <code>/delproduct &lt;id&gt;</code>.",
@@ -558,7 +563,12 @@ MY: dict[str, str] = {
     "<code>အမည် | စျေးကြေး | ကုန်ပမာနှင့် | အာမခံ | Tutorial</code>\n\n"
     "Category ကို အောက်မှာ မထည့်နိုင်ပါ — ဒီမှာ သတ်မှတ်ပြီးသားပါ။",
     "addproduct_bad_caption": "⚠️ Caption ပုံစံ မမှန်ပါ — `<အမည်> | <စျေးကြေး>` အတိုင်း စမ်းပါ။",
-    "addcat_prompt": "🗂 Category အမည် ရိုက်ထည့်ပါ။",
+    "addcat_prompt": "🗂 <b>Category အသစ်</b>\n\n"
+    "အမည် ရိုက်ပို့ပါ — ရှေ့မှာ emoji ထည့်ခြင်း ခန္ဓပုံပါ။\n\n"
+    "<code>/addcat CapCut</code>      → {emoji} CapCut\n"
+    "<code>/addcat \U0001f3ac CapCut</code>   → \U0001f3ac CapCut\n\n"
+    "အဲဒီ emoji က customer တွေ မြင်တဲ့ ခလုပ်တွေရဲ့ အရောင်ပါ။",
+    "addcat_need_name": "{emoji} ရပါပြီ — ဒီ category ရဲ့ <b>အမည်</b> ကိုပဲ ပို့ပါ။",
     "addcat_saved": "✅ Category ထည့်ပြီးပါပြီ — <code>{id}</code> · {emoji} {name}",
     "delcat_usage": "⚠️ `/delcat <id>` သုံးပါ။",
     "delproduct_usage": "⚠️ `/delproduct <id>` သုံးပါ။",
