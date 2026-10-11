@@ -66,6 +66,7 @@ ADMIN_COMMANDS = {
     "addpay": admin.cmd_addpay,
     "delpay": admin.cmd_delpay,
     "setlang": admin.cmd_setlang,
+    "status": admin.cmd_status,
 }
 
 

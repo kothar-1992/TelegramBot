@@ -223,6 +223,18 @@ EN: dict[str, str] = {
     "prod_saved": "✅ <b>Product saved</b>\n\n<code>#{id}</code> — {name}\n💵 {price}\n"
     "📦 Stock: {stock}\n🗂 {category}",
     "prod_no_category": "uncategorised",
+    "prod_no_category_warn": "⚠️ This product is in <b>no category</b>, so customers will never "
+    "see it in the shop. Add the category name to the caption exactly as written: <code>{names}</code>.",
+    # /status
+    "status_title": "🔧 <b>Shop status</b>",
+    "status_products": "📦 Products: <b>{live}</b> live · <b>{total}</b> total",
+    "status_cats": "🗂 Categories: <b>{cats}</b>",
+    "status_orphans": "🚫 <b>{count}</b> products belong to no category and are invisible to customers",
+    "status_traffic": "👥 Users: <b>{users}</b> · 🧾 Orders: <b>{orders}</b>",
+    "status_save_ok": "💾 Last saved to Telegram: <b>{when}</b>",
+    "status_save_never": "⚠️ The catalogue has never been saved — a deploy will erase it",
+    "status_save_dirty": "⚠️ Unsaved changes since the last snapshot",
+    "status_save_off": "⚠️ Backups are OFF — set BACKUP_ENABLED=true on Render",
     "prod_toggle": "{state} <b>{name}</b>",
     "prod_on": "🟢 live",
     "prod_off": "🔴 hidden",
@@ -512,6 +524,18 @@ MY: dict[str, str] = {
     "prod_saved": "✅ <b>ထုတ်ကုန် ထည့်ပြီးပါပြီ</b>\n\n<code>#{id}</code> — {name}\n💵 {price}\n"
     "📦 ကုန်ပမာနှင့်: {stock}\n🗂 {category}",
     "prod_no_category": "Category မသတ်မှတ်",
+    "prod_no_category_warn": "⚠️ ဤထုတ်ကုန်က **Category မရှိဘူး** — ဖုန်တော်တွေ ဆိုင်ထဲမှာ မြင်ရင်းမရပါ။ "
+    "Caption မှာ category အမည်ကို အတိအကျ ရေးပါ — <code>{names}</code>။",
+    # /status
+    "status_title": "🔧 <b>ဆိုင် အခြေအနေ</b>",
+    "status_products": "📦 ထုတ်ကုန်: <b>{live}</b> တိုက်ရိုက် · <b>{total}</b> စုစုပေါင်း",
+    "status_cats": "🗂 Category: <b>{cats}</b>",
+    "status_orphans": "🚫 Category မရှိတဲ့ ထုတ်ကုန် <b>{count}</b> ခု — ဖုန်တော်တွေ မြင်ရင်းမရပါ",
+    "status_traffic": "👥 အသုံးပြုသူ: <b>{users}</b> · 🧾 အော်ဒါ: <b>{orders}</b>",
+    "status_save_ok": "💾 Telegram ထဲ နောက်ဆုံးသိမ်းချိန်: <b>{when}</b>",
+    "status_save_never": "⚠️ ကြီးစားကို ဘယ်တော့မှ မသိမ်းခဲ့ပါ — deploy လုပ်ရင် ပျောက်မယ်",
+    "status_save_dirty": "⚠️ နောက်ဆုံး save ပြီးတဲ့ကာလ ပြောင်းလဲမှု မသိမ်းရသေးပါ",
+    "status_save_off": "⚠️ Backup ပိတ်ထားပါတယ် — Render မှာ BACKUP_ENABLED=true သတ်မှတ်ပါ",
     "prod_toggle": "{state} <b>{name}</b>",
     "prod_on": "🟢 တင်းကြီး",
     "prod_off": "🔴 ပိတ်",

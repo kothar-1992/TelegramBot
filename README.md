@@ -141,7 +141,27 @@ Bot တစ်ခုလုံးမှာ KBZPay / AYAPAY / CBPAY / Binance Pay /
 | `/addpay <emoji> <name> \| <နံပါတ်> \| <အမည်>` | KBZPay/AYAPAY/Binance Pay… ထည့် |
 | `/delpay <id>` | ပေးချေးမည့်နည်းလမ်း ဖျက် |
 | `/setlang <en\|my>` | အသစ်ဖုန်တော်တိုင်းအတွက် default ဘာသာစကား |
+| `/status` | ဆိုင်အခြေအနေ စစ်မှု (ထုတ်ကုန်၊ backup) |
 | `/id` | သင့် Telegram ID |
+
+### 🔧 `/status` — ဘာဖြစ်နေလဲ ချက်ချင်းသိရန်
+
+```
+🔧 Shop status
+📦 Products: 13 live · 13 total
+🗂 Categories: 6
+   📦 ChatGPT — 3
+   📦 Gemini — 3
+   …
+🚫 2 products belong to no category and are invisible to customers
+💾 Last saved to Telegram: 20261011-134803
+```
+
+- Category **အလွတ်** ဖြစ်နေရင် ရင်းနှီးတွေ အောက်မှာ တစ်ချက်တည်းတည်း ပေါ်ပါမယ် —
+  အဲဒါက customer တွေ ဘယ်တော့မှ **မမြင်ခဲ့**ရဘူးဆိုတာ သိစေပါတယ်
+- ထုတ်ကုန် ဖန်တီးပြီး category မသတ်မှတ်တဲ့အခါ အဲဒီလို **သတိပြးချက်** ပေါ်ပါတယ်။ caption မှာ
+  category အမည် မှန်ကန်မရေးရင် ဒါကိုပဲ အဲဒါကြောင့်ပါ
+- Backup မလုပ်နေရင်၊ ဘယ်တော့မှ မသိမ်းခဲ့ရင် အဲဒါလည်း ⚠️ နဲ့ ပေါ်ပါမယ်
 
 `🛍 ထုတ်ကုန်များ` Main Menu ထဲမှာ **🛠 Admin Panel** ခလုပ်က ဖြတ်လို့လည်းရ — button အသစ်တွေနဲ့
 ထုတ်ကုန်/အော်ဒါ/လက်ကောင်း စီမံခြင်း၊

@@ -31,6 +31,8 @@ log = logging.getLogger(__name__)
 MARKER = re.compile(r"shopdb:(.*)")
 #: How many recent snapshots to remember. Fits comfortably in the 512-char bio.
 KEEP_POINTERS = 3
+#: Setting holding the timestamp of the last successful snapshot.
+LAST_SAVE = "last_backup"
 
 
 def _snapshot_path() -> Path:
@@ -127,6 +129,10 @@ async def flush(bot, admin_id: int) -> bool:
 
     file_id = await upload(bot, admin_id or settings.backup_admin_id)
     if file_id:
+        # Record the time *before* clearing: writing the setting is itself a
+        # write, so clearing first would leave the database dirty for ever and
+        # the periodic job would snapshot again on every tick.
+        db.set_setting(LAST_SAVE, db.stamp())
         db.clear_dirty()
         return True
 
@@ -153,6 +159,7 @@ async def restore(bot) -> bool:
             log.warning("Snapshot %d/%d is unusable, trying the next one", index + 1, len(pointers), exc_info=True)
             continue
         log.info("Restored %s from the Telegram snapshot (%d/%d)", target.name, index + 1, len(pointers))
+        db.clear_dirty()  # what is on disk is now the source of truth
         return True
     return False
 

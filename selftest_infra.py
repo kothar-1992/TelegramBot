@@ -208,10 +208,14 @@ async def _run() -> int:
 
     print("7) every admin handler is wrapped in a save")
     check(
+        "status" in set(bot_module.ADMIN_COMMANDS),
+        "/status is routed like every other admin command",
+    )
+    check(
         set(bot_module.ADMIN_COMMANDS) == {
             "addcat", "cats", "delcat", "addproduct", "products", "delproduct", "toggle",
             "give", "balance", "broadcast", "setbanner", "setname", "pending", "demo",
-            "paymethods", "addpay", "delpay", "setlang",
+            "paymethods", "addpay", "delpay", "setlang", "status",
         },
         "every admin command is still routed",
     )
@@ -249,6 +253,9 @@ async def _run() -> int:
     check(db.get_user(1234)["balance"] == 500, "balances survived too")
 
     print("9) a dead snapshot falls back to the previous one")
+    db.add_product("After The Snapshot", 1_000, category_id=cat)
+    check(await backup.flush(survive_bot, 999) is True, "saved again before the fallback test")
+    check(bool(db.get_setting(backup.LAST_SAVE)), "a successful save records when it happened")
     survive_bot.cloud.clear()  # Telegram expired everything we stored
     check(await backup.restore(survive_bot) is False, "restore fails cleanly when nothing is left")
     check(live.exists(), "a failed restore leaves the existing database alone")

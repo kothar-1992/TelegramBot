@@ -259,6 +259,16 @@ async def cmd_id(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     )
 
 
+def _category_buttons(cat_id: int) -> InlineKeyboardMarkup:
+    """See / add more inside the category a product just landed in."""
+    return InlineKeyboardMarkup(
+        [
+            [InlineKeyboardButton(t("admin_prod_new"), callback_data=f"adm:cat:new:{cat_id}")],
+            [InlineKeyboardButton(t("back"), callback_data=f"adm:cat:{cat_id}")],
+        ]
+    )
+
+
 def _category_saved(message, cat_id: int, emoji: str, name: str) -> None:
     """Confirm a new category and offer to fill it straight away."""
     message.reply_text(
@@ -510,6 +520,43 @@ async def cmd_setlang(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
     await update.message.reply_text(t("lang_admin_set", name=lang.native_name(raw)), parse_mode=ParseMode.HTML)
 
 
+async def cmd_status(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """`/status` — the plain truth about what is live right now.
+
+    Answers the question every shop asks eventually: did my catalogue
+    survive, and is it actually linked to the categories customers browse?
+    """
+    cats = db.list_categories()
+    live = db.count_products()
+    total = db.count_products(active_only=False)
+    orphans = db.count_products(active_only=False) - sum(
+        db.count_products(c["id"], active_only=False) for c in cats
+    )
+
+    lines = [
+        t("status_products", live=live, total=total),
+        t("status_cats", cats=len(cats)),
+    ]
+    for row in cats:
+        count = db.count_products(row["id"], active_only=False)
+        lines.append(f"   {row['emoji']} {esc(row['name'])} — {count}")
+    if orphans:
+        lines.append(t("status_orphans", count=orphans))
+    lines.append(t("status_traffic", users=db.user_count(), orders=db.order_count()))
+
+    if not backup.enabled():
+        lines.append(t("status_save_off"))
+    else:
+        saved = db.get_setting(backup.LAST_SAVE)
+        lines.append(t("status_save_ok", when=saved or "?") if saved else t("status_save_never"))
+        if db.is_dirty():
+            lines.append(t("status_save_dirty"))
+
+    await update.message.reply_text(
+        t("status_title") + "\n" + "\n".join(lines), parse_mode=ParseMode.HTML
+    )
+
+
 async def cmd_pending(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     await router.go(update, context, "adm:orders")
 
@@ -579,16 +626,24 @@ async def on_admin_text(update: Update, context: ContextTypes.DEFAULT_TYPE) -> N
         db.set_pending(update.effective_user.id, None)
         cat = db.get_category(category_id) if category_id else None
         cat_label = f"{cat['emoji']} {esc(cat['name'])}" if cat else t("prod_no_category")
+        body = t(
+            "prod_saved",
+            id=product_id,
+            name=esc(name),
+            price=money(price),
+            stock=t("product_stock_inf") if stock < 0 else stock,
+            category=cat_label,
+        )
+        if cat is None:
+            # A product with no category is invisible in the shop's own
+            # catalogue — say so plainly rather than let it look like a bug.
+            body += "\n\n" + t("prod_no_category_warn", names=", ".join(c["name"] for c in db.list_categories()))
         await update.message.reply_text(
-            t(
-                "prod_saved",
-                id=product_id,
-                name=esc(name),
-                price=money(price),
-                stock=t("product_stock_inf") if stock < 0 else stock,
-                category=cat_label,
-            ),
+            body,
             parse_mode=ParseMode.HTML,
+            reply_markup=(
+                None if cat is None else _category_buttons(cat["id"])
+            ),
         )
         raise ApplicationHandlerStop
 
